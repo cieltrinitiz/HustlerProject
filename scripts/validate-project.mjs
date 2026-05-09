@@ -13,11 +13,16 @@ const requiredFiles = [
   "lib/gooddollar/identity.ts",
   "lib/gooddollar/identity.local.example.ts",
   "docs/local-identity.md",
+  "docs/remix-deploy.md",
   "components/identity/GoodDollarIdentityGate.tsx",
   "app/api/identity/status/route.ts",
   "supabase/migrations/001_initial_schema.sql",
   "contracts/GoodLearnExam.sol",
   "contracts/GoodLearnRewardPool.sol",
+  "contracts/remix/GoodLearnRewardPoolRemix.sol",
+  "contracts/interfaces/IERC20.sol",
+  "contracts/interfaces/IGoodLearnExam.sol",
+  ".github/workflows/ci.yml",
 ];
 
 for (const file of requiredFiles) {
@@ -37,6 +42,17 @@ if (!gitignore.includes("lib/gooddollar/identity.local.ts")) {
 const examContract = await readFile("contracts/GoodLearnExam.sol", "utf8");
 if (!examContract.includes("revealCorrectAnswers") || !examContract.includes("revealUserAnswers")) {
   throw new Error("GoodLearnExam.sol is missing reveal flow functions");
+}
+
+
+const rewardPool = await readFile("contracts/GoodLearnRewardPool.sol", "utf8");
+if (rewardPool.includes('import {IERC20}') || rewardPool.includes('import {IGoodLearnExam}')) {
+  throw new Error("GoodLearnRewardPool.sol should keep minimal interfaces inline for Remix");
+}
+
+const remixRewardPool = await readFile("contracts/remix/GoodLearnRewardPoolRemix.sol", "utf8");
+if (!remixRewardPool.includes("interface IERC20Remix") || !remixRewardPool.includes("interface IGoodLearnExamRemix")) {
+  throw new Error("GoodLearnRewardPoolRemix.sol must include inline interfaces for Remix");
 }
 
 console.log("Project structure validated.");

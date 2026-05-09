@@ -42,3 +42,10 @@ The publish fee is a one-time CELO platform fee. Network gas and G$ reward fundi
 ## Identity gate
 
 `GoodDollarIdentityGate` checks `getWhitelistedRoot` and starts Face Verification with `generateFVLink`. Supabase `profiles` stores the latest status for dashboards. `lib/gooddollar/identity.local.ts` is ignored by Git for local-only overrides.
+
+
+## Remix deployment
+
+For Remix, deploy `GoodLearnExam.sol` first and then `GoodLearnRewardPool.sol`. The reward pool keeps the ERC-20 and exam interfaces inline to avoid import-resolution errors for `contracts/interfaces/IERC20.sol` and `contracts/interfaces/IGoodLearnExam.sol`. A separate `contracts/remix/GoodLearnRewardPoolRemix.sol` copy is also available if you want a Remix-specific file.
+
+Use the Celo G$ token address `0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A` for production deployments.

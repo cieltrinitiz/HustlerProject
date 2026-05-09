@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @notice Minimal ERC-20 interface kept inline so Remix can compile this file without resolving imports.
-interface IERC20 {
+/// @notice Inline ERC-20 interface for Remix deployments where relative imports can fail.
+interface IERC20Remix {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
 }
 
-/// @notice Minimal GoodLearnExam interface kept inline so Remix can compile this file without resolving imports.
-interface IGoodLearnExam {
+/// @notice Inline GoodLearnExam interface for Remix deployments where relative imports can fail.
+interface IGoodLearnExamRemix {
     function getExamRewardConfig(uint256 examId)
         external
         view
@@ -25,7 +25,8 @@ interface IGoodLearnExam {
     function getUserScore(uint256 examId, address learner) external view returns (uint256 score, bool revealed);
 }
 
-contract GoodLearnRewardPool {
+/// @notice Remix-friendly reward pool. Deploy with the Celo G$ token and GoodLearnExam addresses.
+contract GoodLearnRewardPoolRemix {
     struct Pool {
         address creator;
         uint256 requiredAmount;
@@ -34,8 +35,8 @@ contract GoodLearnRewardPool {
         bool funded;
     }
 
-    IERC20 public immutable goodDollar;
-    IGoodLearnExam public immutable examContract;
+    IERC20Remix public immutable goodDollar;
+    IGoodLearnExamRemix public immutable examContract;
     address public owner;
 
     mapping(uint256 examId => Pool) public pools;
@@ -53,8 +54,8 @@ contract GoodLearnRewardPool {
     constructor(address goodDollarToken, address goodLearnExam) {
         require(goodDollarToken != address(0), "G$ required");
         require(goodLearnExam != address(0), "Exam required");
-        goodDollar = IERC20(goodDollarToken);
-        examContract = IGoodLearnExam(goodLearnExam);
+        goodDollar = IERC20Remix(goodDollarToken);
+        examContract = IGoodLearnExamRemix(goodLearnExam);
         owner = msg.sender;
     }
 
@@ -128,6 +129,6 @@ contract GoodLearnRewardPool {
     function recoverUnexpectedToken(address token, address to, uint256 amount) external onlyOwner {
         require(token != address(goodDollar), "Cannot recover G$ rewards");
         require(to != address(0), "Recipient required");
-        require(IERC20(token).transfer(to, amount), "Recover failed");
+        require(IERC20Remix(token).transfer(to, amount), "Recover failed");
     }
 }
