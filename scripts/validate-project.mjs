@@ -44,15 +44,13 @@ if (!examContract.includes("revealCorrectAnswers") || !examContract.includes("re
   throw new Error("GoodLearnExam.sol is missing reveal flow functions");
 }
 
-
-const rewardPool = await readFile("contracts/GoodLearnRewardPool.sol", "utf8");
-if (rewardPool.includes('import {IERC20}') || rewardPool.includes('import {IGoodLearnExam}')) {
-  throw new Error("GoodLearnRewardPool.sol should keep minimal interfaces inline for Remix");
-}
-
 const remixRewardPool = await readFile("contracts/remix/GoodLearnRewardPoolRemix.sol", "utf8");
 if (!remixRewardPool.includes("interface IERC20Remix") || !remixRewardPool.includes("interface IGoodLearnExamRemix")) {
   throw new Error("GoodLearnRewardPoolRemix.sol must include inline interfaces for Remix");
+}
+
+if (!remixRewardPool.includes("_callOptionalReturn") || !remixRewardPool.includes("Incorrect G$ received")) {
+  throw new Error("GoodLearnRewardPoolRemix.sol must keep Remix-safe ERC-20 transfer handling");
 }
 
 console.log("Project structure validated.");
