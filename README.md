@@ -81,15 +81,15 @@ Local-only identity overrides can be kept in `lib/gooddollar/identity.local.ts`,
 ## Smart contracts
 
 - `GoodLearnExam.sol` handles exam publication, question commitments, timed submissions, correction reveal, and scoring.
-- `GoodLearnRewardPool.sol` handles G$ funding, claims, double-claim prevention, and unused reward refunds. Its minimal interfaces are inline so the file can compile directly in Remix.
-- `contracts/remix/GoodLearnRewardPoolRemix.sol` remains available as an explicit Remix deployment copy with inline interfaces.
+- `GoodLearnRewardPool.sol` handles G$ funding, optional-return-safe token transfers, claims, double-claim prevention, and unused reward refunds.
+- `contracts/remix/GoodLearnRewardPoolRemix.sol` includes inline interfaces for Remix deployments without import errors.
 
 ## Remix deployment
 
 See [`docs/remix-deploy.md`](docs/remix-deploy.md). Short version:
 
 1. Deploy `GoodLearnExam.sol`.
-2. Deploy `GoodLearnRewardPool.sol` or the explicit `GoodLearnRewardPoolRemix.sol` copy.
+2. Deploy `GoodLearnRewardPoolRemix.sol`.
 3. Use Celo G$ token `0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A`.
 
 ## Current limitations
