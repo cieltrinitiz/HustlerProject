@@ -49,4 +49,8 @@ if (!remixRewardPool.includes("interface IERC20Remix") || !remixRewardPool.inclu
   throw new Error("GoodLearnRewardPoolRemix.sol must include inline interfaces for Remix");
 }
 
+if (!remixRewardPool.includes("_callOptionalReturn") || !remixRewardPool.includes("Incorrect G$ received")) {
+  throw new Error("GoodLearnRewardPoolRemix.sol must keep Remix-safe ERC-20 transfer handling");
+}
+
 console.log("Project structure validated.");

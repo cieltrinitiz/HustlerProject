@@ -25,7 +25,7 @@ Save the deployed exam address.
 
 ## Deploy `GoodLearnRewardPoolRemix.sol`
 
-Compile `contracts/remix/GoodLearnRewardPoolRemix.sol`. This file includes inline ERC-20 and exam interfaces so Remix does not need to resolve `contracts/interfaces/IERC20.sol` or `contracts/interfaces/IGoodLearnExam.sol` imports.
+Compile `contracts/remix/GoodLearnRewardPoolRemix.sol`. This file includes inline ERC-20 and exam interfaces so Remix does not need to resolve `contracts/interfaces/IERC20.sol` or `contracts/interfaces/IGoodLearnExam.sol` imports. In Remix, make sure the selected deploy contract is `GoodLearnRewardPoolRemix` (not either interface).
 
 Constructor values:
 
@@ -46,6 +46,6 @@ NEXT_PUBLIC_GOODDOLLAR_TOKEN_ADDRESS=0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A
 
 1. Submit the module and questions from the app.
 2. Call `createExam` on `GoodLearnExam` with the generated question set hash and correct-answer commitment.
-3. Approve the reward pool contract to spend the required G$ amount.
-4. Call `fundExam` on `GoodLearnRewardPoolRemix`.
+3. Approve the reward pool contract to spend the exact required G$ amount.
+4. Call `fundExam` on `GoodLearnRewardPoolRemix`. The pool now uses low-level optional-return ERC-20 calls and verifies the contract received the full expected amount before marking the pool funded.
 5. After the correction delay, call `revealCorrectAnswers` on `GoodLearnExam`.
