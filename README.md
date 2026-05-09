@@ -81,7 +81,7 @@ Local-only identity overrides can be kept in `lib/gooddollar/identity.local.ts`,
 ## Smart contracts
 
 - `GoodLearnExam.sol` handles exam publication, question commitments, timed submissions, correction reveal, and scoring.
-- `GoodLearnRewardPool.sol` handles G$ funding, claims, double-claim prevention, and unused reward refunds.
+- `GoodLearnRewardPool.sol` handles G$ funding, optional-return-safe token transfers, claims, double-claim prevention, and unused reward refunds.
 - `contracts/remix/GoodLearnRewardPoolRemix.sol` includes inline interfaces for Remix deployments without import errors.
 
 ## Remix deployment

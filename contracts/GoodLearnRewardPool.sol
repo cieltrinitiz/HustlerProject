@@ -5,6 +5,25 @@ import {IERC20} from "./interfaces/IERC20.sol";
 import {IGoodLearnExam} from "./interfaces/IGoodLearnExam.sol";
 
 contract GoodLearnRewardPool {
+    function _safeTransfer(IERC20 token, address to, uint256 amount) private {
+        _callOptionalReturn(token, abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
+    }
+
+    function _safeTransferFrom(IERC20 token, address from, address to, uint256 amount) private {
+        _callOptionalReturn(token, abi.encodeWithSelector(IERC20.transferFrom.selector, from, to, amount));
+    }
+
+    function _callOptionalReturn(IERC20 token, bytes memory data) private {
+        require(address(token).code.length > 0, "Token has no code");
+
+        (bool success, bytes memory returnData) = address(token).call(data);
+        require(success, "Token call failed");
+
+        if (returnData.length > 0) {
+            require(abi.decode(returnData, (bool)), "Token operation failed");
+        }
+    }
+
     struct Pool {
         address creator;
         uint256 requiredAmount;
@@ -54,15 +73,18 @@ contract GoodLearnRewardPool {
         uint256 requiredAmount = questionCount * rewardPerCorrect * maxParticipants;
         require(requiredAmount > 0, "Invalid pool");
 
+        uint256 balanceBefore = goodDollar.balanceOf(address(this));
+        _safeTransferFrom(goodDollar, msg.sender, address(this), requiredAmount);
+        uint256 receivedAmount = goodDollar.balanceOf(address(this)) - balanceBefore;
+        require(receivedAmount == requiredAmount, "Incorrect G$ received");
+
         pools[examId] = Pool({
             creator: msg.sender,
             requiredAmount: requiredAmount,
-            fundedAmount: requiredAmount,
+            fundedAmount: receivedAmount,
             claimedAmount: 0,
             funded: true
         });
-
-        require(goodDollar.transferFrom(msg.sender, address(this), requiredAmount), "G$ transfer failed");
         emit PoolFunded(examId, msg.sender, requiredAmount, requiredAmount);
     }
 
@@ -84,7 +106,7 @@ contract GoodLearnRewardPool {
         claimed[examId][msg.sender] = true;
         pool.claimedAmount += amount;
 
-        require(goodDollar.transfer(msg.sender, amount), "Reward transfer failed");
+        _safeTransfer(goodDollar, msg.sender, amount);
         emit RewardClaimed(examId, msg.sender, score, amount);
     }
 
@@ -100,13 +122,14 @@ contract GoodLearnRewardPool {
         require(unused > 0, "No unused funds");
 
         pool.fundedAmount = pool.claimedAmount;
-        require(goodDollar.transfer(msg.sender, unused), "Refund transfer failed");
+        _safeTransfer(goodDollar, msg.sender, unused);
         emit UnusedRewardsRefunded(examId, msg.sender, unused);
     }
 
     function recoverUnexpectedToken(address token, address to, uint256 amount) external onlyOwner {
         require(token != address(goodDollar), "Cannot recover G$ rewards");
+        require(token != address(0), "Token required");
         require(to != address(0), "Recipient required");
-        require(IERC20(token).transfer(to, amount), "Recover failed");
+        _safeTransfer(IERC20(token), to, amount);
     }
 }
