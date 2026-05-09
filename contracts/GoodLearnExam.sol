@@ -113,6 +113,17 @@ contract GoodLearnExam {
             corrected: false
         });
 
+        if (publishFee > 0) {
+            (bool sent, ) = treasury.call{value: publishFee}("");
+            require(sent, "Publish fee transfer failed");
+        }
+
+        uint256 refund = msg.value - publishFee;
+        if (refund > 0) {
+            (bool refunded, ) = msg.sender.call{value: refund}("");
+            require(refunded, "Publish fee refund failed");
+        }
+
         emit ExamCreated(
             examId,
             msg.sender,
