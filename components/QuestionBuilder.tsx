@@ -15,8 +15,7 @@ const emptyQuestion = (id: number): DraftQuestion => ({
 });
 
 const DEFAULT_MAX_REWARD_PER_LEARNER = 1000;
-const SECONDS_PER_MINUTE = 60;
-const SECONDS_PER_HOUR = 60 * SECONDS_PER_MINUTE;
+const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 
 const isComplete = (question: DraftQuestion) =>
@@ -33,7 +32,7 @@ export function QuestionBuilder() {
   const [moduleKey, setModuleKey] = useState("goodmarket-gs-basics");
   const [maxRewardPerLearner, setMaxRewardPerLearner] = useState(DEFAULT_MAX_REWARD_PER_LEARNER);
   const [maxParticipants, setMaxParticipants] = useState(100);
-  const [timerMinutes, setTimerMinutes] = useState(1);
+  const [timerSecondsInput, setTimerSecondsInput] = useState(60);
   const [startDelayHours, setStartDelayHours] = useState(1);
   const [durationDays, setDurationDays] = useState(7);
   const [correctionDelayDays, setCorrectionDelayDays] = useState(1);
@@ -45,12 +44,14 @@ export function QuestionBuilder() {
   const perLearnerMaxReward = completedQuestions.length * rewardPerCorrect;
   const unusedRewardRemainder = maxRewardPerLearner - perLearnerMaxReward;
   const requiredPool = perLearnerMaxReward * maxParticipants;
+  const activeQuestionIndex = questions.findIndex(question => !isComplete(question));
+  const activeQuestion = activeQuestionIndex >= 0 ? questions[activeQuestionIndex] : questions[questions.length - 1];
 
-  const safeTimerMinutes = Math.max(1, timerMinutes || 1);
+  const safeTimerSeconds = Math.max(1, timerSecondsInput || 1);
   const safeStartDelayHours = Math.max(0, startDelayHours || 0);
   const safeDurationDays = Math.max(1, durationDays || 1);
   const safeCorrectionDelayDays = Math.max(1, correctionDelayDays || 1);
-  const timerSeconds = safeTimerMinutes * SECONDS_PER_MINUTE;
+  const timerSeconds = safeTimerSeconds;
   const startDelaySeconds = safeStartDelayHours * SECONDS_PER_HOUR;
   const examDurationSeconds = safeDurationDays * SECONDS_PER_DAY;
   const correctionDelaySeconds = safeCorrectionDelayDays * SECONDS_PER_DAY;
@@ -92,7 +93,7 @@ export function QuestionBuilder() {
           <span className="badge">Creator controls</span>
           <div>
             <h2>Set up the exam details</h2>
-            <p>Use friendly time units here; the app still prepares the contract-ready seconds behind the scenes.</p>
+            <p>Set the learner timer directly in seconds so every question uses the exact contract-ready countdown.</p>
           </div>
         </div>
 
@@ -117,8 +118,8 @@ export function QuestionBuilder() {
             <label>
               <span>Timer per question</span>
               <div className="input-with-suffix">
-                <input min={1} type="number" value={timerMinutes} onChange={event => setTimerMinutes(Number(event.target.value))} />
-                <small>min</small>
+                <input min={1} type="number" value={timerSecondsInput} onChange={event => setTimerSecondsInput(Number(event.target.value))} />
+                <small>sec</small>
               </div>
             </label>
             <label>
@@ -153,42 +154,38 @@ export function QuestionBuilder() {
           <span className="badge">Question set</span>
           <div>
             <h2>Build learner questions</h2>
-            <p>A new question appears automatically after the current card is complete.</p>
+            <p>Only the active question stays visible. After it is complete, it disappears and the next question appears automatically.</p>
           </div>
         </div>
 
-        {questions.map((question, index) => {
-          const complete = isComplete(question);
-
-          return (
-            <fieldset className={`question-card elevated-card ${complete ? "complete" : ""}`} key={question.id}>
-              <legend>Question {question.id}</legend>
-              <div className="question-card-heading">
-                <span>{complete ? "Complete" : "Draft"}</span>
-                <strong>{question.correctAnswer}</strong>
-              </div>
-              <label>
-                <span>Prompt</span>
-                <textarea placeholder="Ask one clear question..." value={question.prompt} onChange={event => updateQuestion(index, { prompt: event.target.value })} />
-              </label>
-              <div className="grid compact-grid answer-grid">
-                <label><span>Choice A</span><input placeholder="First answer" value={question.choiceA} onChange={event => updateQuestion(index, { choiceA: event.target.value })} /></label>
-                <label><span>Choice B</span><input placeholder="Second answer" value={question.choiceB} onChange={event => updateQuestion(index, { choiceB: event.target.value })} /></label>
-                <label><span>Choice C</span><input placeholder="Third answer" value={question.choiceC} onChange={event => updateQuestion(index, { choiceC: event.target.value })} /></label>
-                <label><span>Choice D</span><input placeholder="Fourth answer" value={question.choiceD} onChange={event => updateQuestion(index, { choiceD: event.target.value })} /></label>
-              </div>
-              <label className="correct-answer-field">
-                <span>Correct answer</span>
-                <select value={question.correctAnswer} onChange={event => updateQuestion(index, { correctAnswer: event.target.value as DraftQuestion["correctAnswer"] })}>
-                  <option value="A">A</option>
-                  <option value="B">B</option>
-                  <option value="C">C</option>
-                  <option value="D">D</option>
-                </select>
-              </label>
-            </fieldset>
-          );
-        })}
+        {activeQuestion ? (
+          <fieldset className="question-card elevated-card" key={activeQuestion.id}>
+            <legend>Question {activeQuestion.id}</legend>
+            <div className="question-card-heading">
+              <span>Active question</span>
+              <strong>{activeQuestion.correctAnswer}</strong>
+            </div>
+            <label>
+              <span>Prompt</span>
+              <textarea placeholder="Ask one clear question..." value={activeQuestion.prompt} onChange={event => updateQuestion(activeQuestionIndex, { prompt: event.target.value })} />
+            </label>
+            <div className="grid compact-grid answer-grid">
+              <label><span>Choice A</span><input placeholder="First answer" value={activeQuestion.choiceA} onChange={event => updateQuestion(activeQuestionIndex, { choiceA: event.target.value })} /></label>
+              <label><span>Choice B</span><input placeholder="Second answer" value={activeQuestion.choiceB} onChange={event => updateQuestion(activeQuestionIndex, { choiceB: event.target.value })} /></label>
+              <label><span>Choice C</span><input placeholder="Third answer" value={activeQuestion.choiceC} onChange={event => updateQuestion(activeQuestionIndex, { choiceC: event.target.value })} /></label>
+              <label><span>Choice D</span><input placeholder="Fourth answer" value={activeQuestion.choiceD} onChange={event => updateQuestion(activeQuestionIndex, { choiceD: event.target.value })} /></label>
+            </div>
+            <label className="correct-answer-field">
+              <span>Correct answer</span>
+              <select value={activeQuestion.correctAnswer} onChange={event => updateQuestion(activeQuestionIndex, { correctAnswer: event.target.value as DraftQuestion["correctAnswer"] })}>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+                <option value="D">D</option>
+              </select>
+            </label>
+          </fieldset>
+        ) : null}
       </section>
 
       <aside className="card summary publish-panel creator-summary-panel">
@@ -213,7 +210,7 @@ export function QuestionBuilder() {
           <p><strong>{maxParticipants.toLocaleString()}</strong><span>max participants</span></p>
           <p><strong>{perLearnerMaxReward.toLocaleString()} G$</strong><span>actual max payout per learner</span></p>
           {unusedRewardRemainder > 0 && <p><strong>{unusedRewardRemainder.toLocaleString()} G$</strong><span>undistributed remainder</span></p>}
-          <p><strong>{formatUnit(safeTimerMinutes, "minute")}</strong><span>timer per question</span></p>
+          <p><strong>{formatUnit(safeTimerSeconds, "second")}</strong><span>timer per question</span></p>
           <p><strong>{formatUnit(safeStartDelayHours, "hour")}</strong><span>start delay</span></p>
           <p><strong>{formatUnit(safeDurationDays, "day")}</strong><span>exam duration</span></p>
           <p><strong>{formatUnit(safeCorrectionDelayDays, "day")}</strong><span>correction delay</span></p>
