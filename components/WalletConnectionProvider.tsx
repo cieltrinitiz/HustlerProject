@@ -7,12 +7,17 @@ export type EthereumProvider = {
   isMiniPay?: boolean;
   isTrust?: boolean;
   isTrustWallet?: boolean;
+  isGoodWallet?: boolean;
+  isGoodDollar?: boolean;
+  isCoinbaseWallet?: boolean;
   providers?: EthereumProvider[];
   request?: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
+  disconnect?: () => Promise<void>;
 };
 
 type BrowserWindow = typeof window & {
   ethereum?: EthereumProvider;
+  goodwallet?: EthereumProvider | { ethereum?: EthereumProvider };
   trustwallet?: EthereumProvider | { ethereum?: EthereumProvider };
 };
 
@@ -21,12 +26,21 @@ export type WalletState = {
   label: string;
 };
 
+export type WalletVisual = {
+  accent: string;
+  bg: string;
+  emoji: string;
+  label: string;
+  shortLabel: string;
+};
+
 type WalletConnectionContextValue = {
   wallet: WalletState | null;
   setWallet: (wallet: WalletState | null) => void;
   detectedWalletLabel: string;
   hasInjectedWallet: boolean;
   isMobileBrowser: boolean;
+  walletVisual: WalletVisual;
 };
 
 const WalletConnectionContext = createContext<WalletConnectionContextValue | undefined>(undefined);
@@ -55,9 +69,14 @@ export function WalletConnectionProvider({ children }: Readonly<{ children: Reac
       .catch(() => undefined);
   }, []);
 
+  const walletVisual = useMemo(
+    () => getWalletVisual(wallet?.label ?? (hasInjectedWallet ? detectedWalletLabel : "Injected wallet")),
+    [detectedWalletLabel, hasInjectedWallet, wallet?.label],
+  );
+
   const value = useMemo(
-    () => ({ wallet, setWallet, detectedWalletLabel, hasInjectedWallet, isMobileBrowser }),
-    [detectedWalletLabel, hasInjectedWallet, isMobileBrowser, wallet],
+    () => ({ wallet, setWallet, detectedWalletLabel, hasInjectedWallet, isMobileBrowser, walletVisual }),
+    [detectedWalletLabel, hasInjectedWallet, isMobileBrowser, wallet, walletVisual],
   );
 
   return <WalletConnectionContext.Provider value={value}>{children}</WalletConnectionContext.Provider>;
@@ -80,13 +99,16 @@ export function getInjectedProvider(): EthereumProvider | undefined {
 
   const browserWindow = window as BrowserWindow;
   const injected = browserWindow.ethereum;
+  const goodWallet = browserWindow.goodwallet;
   const trustWallet = browserWindow.trustwallet;
 
   if (injected?.providers?.length) {
     return (
+      injected.providers.find((provider) => provider.isGoodWallet || provider.isGoodDollar) ??
       injected.providers.find((provider) => provider.isMiniPay) ??
       injected.providers.find((provider) => provider.isTrust || provider.isTrustWallet) ??
       injected.providers.find((provider) => provider.isMetaMask) ??
+      injected.providers.find((provider) => provider.isCoinbaseWallet) ??
       injected.providers[0]
     );
   }
@@ -95,15 +117,8 @@ export function getInjectedProvider(): EthereumProvider | undefined {
     return injected;
   }
 
-  if (!trustWallet) {
-    return undefined;
-  }
-
-  if ("ethereum" in trustWallet) {
-    return trustWallet.ethereum;
-  }
-
-  return trustWallet as EthereumProvider;
+  const externalWallet = normalizeExternalProvider(goodWallet) ?? normalizeExternalProvider(trustWallet);
+  return externalWallet;
 }
 
 export function parseFirstAccount(accounts: unknown) {
@@ -116,6 +131,10 @@ export function parseFirstAccount(accounts: unknown) {
 }
 
 export function getProviderLabel(provider: EthereumProvider) {
+  if (provider.isGoodWallet || provider.isGoodDollar) {
+    return "GoodWallet";
+  }
+
   if (provider.isMiniPay) {
     return "MiniPay";
   }
@@ -128,7 +147,53 @@ export function getProviderLabel(provider: EthereumProvider) {
     return "MetaMask";
   }
 
+  if (provider.isCoinbaseWallet) {
+    return "Coinbase Wallet";
+  }
+
   return "Injected wallet";
+}
+
+export function getWalletVisual(label: string): WalletVisual {
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes("good")) {
+    return { accent: "#facc15", bg: "#1d4ed8", emoji: "G$", label: "GoodWallet", shortLabel: "GW" };
+  }
+
+  if (normalized.includes("metamask")) {
+    return { accent: "#ff8f4c", bg: "#fff4ec", emoji: "🦊", label: "MetaMask", shortLabel: "MM" };
+  }
+
+  if (normalized.includes("trust")) {
+    return { accent: "#3375bb", bg: "#eef6ff", emoji: "🛡️", label: "Trust Wallet", shortLabel: "TW" };
+  }
+
+  if (normalized.includes("minipay")) {
+    return { accent: "#35d07f", bg: "#ecfff5", emoji: "💚", label: "MiniPay", shortLabel: "MP" };
+  }
+
+  if (normalized.includes("coinbase")) {
+    return { accent: "#0052ff", bg: "#edf3ff", emoji: "🔵", label: "Coinbase Wallet", shortLabel: "CB" };
+  }
+
+  if (normalized.includes("walletconnect")) {
+    return { accent: "#2563eb", bg: "#eaf2ff", emoji: "📱", label: "WalletConnect", shortLabel: "WC" };
+  }
+
+  return { accent: "#7c3aed", bg: "#f4efff", emoji: "🔐", label: "Injected wallet", shortLabel: "IW" };
+}
+
+function normalizeExternalProvider(provider?: EthereumProvider | { ethereum?: EthereumProvider }) {
+  if (!provider) {
+    return undefined;
+  }
+
+  if ("ethereum" in provider) {
+    return provider.ethereum;
+  }
+
+  return provider as EthereumProvider;
 }
 
 function isMobileUserAgent() {

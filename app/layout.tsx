@@ -5,8 +5,8 @@ import { WalletConnectionProvider } from "@/components/WalletConnectionProvider"
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "GoodLearn Quest",
-  description: "GoodDollar Learn & Earn",
+  title: "GoodMarket Learn & Earn",
+  description: "GoodDollar Learn & Earn community hub",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -15,9 +15,9 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <body>
         <WalletConnectionProvider>
           <header className="site-header">
-            <a className="brand" href="/" aria-label="GoodLearn Quest home">
-              <span className="brand-mark">GQ</span>
-              <span>GoodLearn Quest</span>
+            <a className="brand" href="/" aria-label="GoodMarket home">
+              <span className="brand-mark">G$</span>
+              <span>GoodMarket</span>
             </a>
             <ConnectWalletModal />
           </header>

@@ -18,7 +18,7 @@ export function CreateAccessGate({ children }: Readonly<{ children: ReactNode }>
           </p>
           <div className="actions">
             <Link className="button secondary" href="/">
-              Back to instructions
+              Back to Learn & Earn
             </Link>
           </div>
         </section>
