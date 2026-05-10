@@ -78,9 +78,6 @@ export function QuestionBuilder() {
   const perLearnerMaxReward = completedQuestions.length * rewardPerCorrect;
   const unusedRewardRemainder = maxRewardPerLearner - perLearnerMaxReward;
   const requiredPool = perLearnerMaxReward * maxParticipants;
-  const activeQuestionIndex = questions.findIndex(question => !isComplete(question));
-  const activeQuestion = activeQuestionIndex >= 0 ? questions[activeQuestionIndex] : questions[questions.length - 1];
-
   const safeTimerSeconds = Math.max(1, timerSecondsInput || 1);
   const safeStartDelayHours = Math.max(0, startDelayHours || 0);
   const safeDurationDays = Math.max(1, durationDays || 1);
@@ -193,16 +190,15 @@ export function QuestionBuilder() {
   }
 
   function updateQuestion(index: number, patch: Partial<DraftQuestion>) {
-    setQuestions(current => {
-      const next = current.map((question, questionIndex) =>
+    setQuestions(current =>
+      current.map((question, questionIndex) =>
         questionIndex === index ? { ...question, ...patch } : question,
-      );
-      const last = next[next.length - 1];
-      if (isComplete(last)) {
-        next.push(emptyQuestion(next.length + 1));
-      }
-      return next;
-    });
+      ),
+    );
+  }
+
+  function addQuestion() {
+    setQuestions(current => [...current, emptyQuestion(current.length + 1)]);
   }
 
   return (
@@ -273,38 +269,48 @@ export function QuestionBuilder() {
           <span className="badge">Question set</span>
           <div>
             <h2>Build learner questions</h2>
-            <p>Only the active question stays visible. After it is complete, it disappears and the next question appears automatically.</p>
+            <p>Creator mode keeps every question visible while you type. Use Add another question when you are ready for the next item.</p>
           </div>
         </div>
 
-        {activeQuestion ? (
-          <fieldset className="question-card elevated-card" key={activeQuestion.id}>
-            <legend>Question {activeQuestion.id}</legend>
-            <div className="question-card-heading">
-              <span>Active question</span>
-              <strong>{activeQuestion.correctAnswer}</strong>
-            </div>
-            <label>
-              <span>Prompt</span>
-              <textarea placeholder="Ask one clear question..." value={activeQuestion.prompt} onChange={event => updateQuestion(activeQuestionIndex, { prompt: event.target.value })} />
-            </label>
-            <div className="grid compact-grid answer-grid">
-              <label><span>Choice A</span><input placeholder="First answer" value={activeQuestion.choiceA} onChange={event => updateQuestion(activeQuestionIndex, { choiceA: event.target.value })} /></label>
-              <label><span>Choice B</span><input placeholder="Second answer" value={activeQuestion.choiceB} onChange={event => updateQuestion(activeQuestionIndex, { choiceB: event.target.value })} /></label>
-              <label><span>Choice C</span><input placeholder="Third answer" value={activeQuestion.choiceC} onChange={event => updateQuestion(activeQuestionIndex, { choiceC: event.target.value })} /></label>
-              <label><span>Choice D</span><input placeholder="Fourth answer" value={activeQuestion.choiceD} onChange={event => updateQuestion(activeQuestionIndex, { choiceD: event.target.value })} /></label>
-            </div>
-            <label className="correct-answer-field">
-              <span>Correct answer</span>
-              <select value={activeQuestion.correctAnswer} onChange={event => updateQuestion(activeQuestionIndex, { correctAnswer: event.target.value as DraftQuestion["correctAnswer"] })}>
-                <option value="A">A</option>
-                <option value="B">B</option>
-                <option value="C">C</option>
-                <option value="D">D</option>
-              </select>
-            </label>
-          </fieldset>
-        ) : null}
+        <div className="question-list">
+          {questions.map((question, questionIndex) => {
+            const questionComplete = isComplete(question);
+
+            return (
+              <fieldset className={`question-card elevated-card${questionComplete ? " complete" : ""}`} key={question.id}>
+                <legend>Question {question.id}</legend>
+                <div className="question-card-heading">
+                  <span>{questionComplete ? "Complete question" : "Draft question"}</span>
+                  <strong>{question.correctAnswer}</strong>
+                </div>
+                <label>
+                  <span>Prompt</span>
+                  <textarea placeholder="Ask one clear question..." value={question.prompt} onChange={event => updateQuestion(questionIndex, { prompt: event.target.value })} />
+                </label>
+                <div className="grid compact-grid answer-grid">
+                  <label><span>Choice A</span><input placeholder="First answer" value={question.choiceA} onChange={event => updateQuestion(questionIndex, { choiceA: event.target.value })} /></label>
+                  <label><span>Choice B</span><input placeholder="Second answer" value={question.choiceB} onChange={event => updateQuestion(questionIndex, { choiceB: event.target.value })} /></label>
+                  <label><span>Choice C</span><input placeholder="Third answer" value={question.choiceC} onChange={event => updateQuestion(questionIndex, { choiceC: event.target.value })} /></label>
+                  <label><span>Choice D</span><input placeholder="Fourth answer" value={question.choiceD} onChange={event => updateQuestion(questionIndex, { choiceD: event.target.value })} /></label>
+                </div>
+                <label className="correct-answer-field">
+                  <span>Correct answer</span>
+                  <select value={question.correctAnswer} onChange={event => updateQuestion(questionIndex, { correctAnswer: event.target.value as DraftQuestion["correctAnswer"] })}>
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="C">C</option>
+                    <option value="D">D</option>
+                  </select>
+                </label>
+              </fieldset>
+            );
+          })}
+        </div>
+
+        <button className="button secondary add-question-button" onClick={addQuestion} type="button">
+          Add another question
+        </button>
       </section>
 
       <aside className="card summary publish-panel creator-summary-panel">
