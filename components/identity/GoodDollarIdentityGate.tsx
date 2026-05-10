@@ -1,8 +1,14 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { useIdentitySDK } from "@goodsdks/citizen-sdk";
+import { IdentitySDK, type IdentitySDKOptions } from "@goodsdks/citizen-sdk";
+import { createPublicClient, createWalletClient, custom, http, type Address } from "viem";
+import { celo } from "viem/chains";
 import { getGoodDollarIdentityEnvironment, normalizeWalletAddress, type GoodDollarIdentityStatus } from "@/lib/gooddollar/identity";
+
+const CELO_RPC_URL = "https://forno.celo.org";
+
+type EthereumProvider = Parameters<typeof custom>[0];
 
 type GoodDollarIdentityGateProps = {
   walletAddress?: string;
@@ -12,7 +18,6 @@ type GoodDollarIdentityGateProps = {
 
 export function GoodDollarIdentityGate({ walletAddress, callbackUrl, children }: GoodDollarIdentityGateProps) {
   const environment = getGoodDollarIdentityEnvironment();
-  const identitySDK = useIdentitySDK(environment);
   const [status, setStatus] = useState<GoodDollarIdentityStatus | null>(null);
   const [faceVerificationLink, setFaceVerificationLink] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("Connect a wallet to check GoodDollar Identity status.");
@@ -29,7 +34,8 @@ export function GoodDollarIdentityGate({ walletAddress, callbackUrl, children }:
 
     try {
       const normalizedWallet = normalizeWalletAddress(walletAddress);
-      const { isWhitelisted, root } = await identitySDK.getWhitelistedRoot(normalizedWallet);
+      const identitySDK = await createIdentitySDK(normalizedWallet as Address, environment);
+      const { isWhitelisted, root } = await identitySDK.getWhitelistedRoot(normalizedWallet as Address);
       const nextStatus = {
         walletAddress: normalizedWallet,
         isWhitelisted,
@@ -57,6 +63,12 @@ export function GoodDollarIdentityGate({ walletAddress, callbackUrl, children }:
     setMessage("Generating Face Verification link...");
 
     try {
+      if (!walletAddress) {
+        setMessage("Wallet address is required before starting GoodDollar Face Verification.");
+        return;
+      }
+
+      const identitySDK = await createIdentitySDK(normalizeWalletAddress(walletAddress) as Address, environment);
       const link = await identitySDK.generateFVLink(false, callbackUrl ?? window.location.href);
       setFaceVerificationLink(link);
       setMessage("Face Verification link is ready.");
@@ -94,4 +106,32 @@ export function GoodDollarIdentityGate({ walletAddress, callbackUrl, children }:
       {isVerified ? children : null}
     </section>
   );
+}
+
+function getBrowserEthereumProvider() {
+  return (window as typeof window & { ethereum?: EthereumProvider }).ethereum;
+}
+
+async function createIdentitySDK(walletAddress: Address, environment: ReturnType<typeof getGoodDollarIdentityEnvironment>) {
+  const ethereum = getBrowserEthereumProvider();
+
+  if (!ethereum) {
+    throw new Error("No browser wallet provider found. Please install or unlock MetaMask.");
+  }
+
+  const publicClient = createPublicClient({
+    chain: celo,
+    transport: http(CELO_RPC_URL),
+  });
+  const walletClient = createWalletClient({
+    account: walletAddress,
+    chain: celo,
+    transport: custom(ethereum),
+  });
+
+  return IdentitySDK.init({
+    publicClient: publicClient as unknown as IdentitySDKOptions["publicClient"],
+    walletClient: walletClient as unknown as IdentitySDKOptions["walletClient"],
+    env: environment,
+  });
 }
