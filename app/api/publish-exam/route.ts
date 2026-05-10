@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 
+const DEFAULT_MAX_REWARD_PER_LEARNER = 1000;
+
 export async function POST(request: Request) {
   const body = await request.json() as {
     moduleId?: string;
@@ -17,6 +19,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "moduleId, creatorWallet, questionSetHash, and questionCount are required" }, { status: 400 });
   }
 
+  const rewardPerCorrect = body.rewardPerCorrect ?? String(Math.floor(DEFAULT_MAX_REWARD_PER_LEARNER / body.questionCount));
+
   const supabase = createSupabaseAdmin();
   const { data, error } = await supabase
     .from("exams")
@@ -26,7 +30,7 @@ export async function POST(request: Request) {
       contract_exam_id: body.contractExamId,
       question_set_hash: body.questionSetHash,
       question_count: body.questionCount,
-      reward_per_correct: body.rewardPerCorrect ?? "100",
+      reward_per_correct: rewardPerCorrect,
       max_participants: body.maxParticipants ?? 100,
       timer_seconds: body.timerSeconds ?? 30,
       status: "published",
