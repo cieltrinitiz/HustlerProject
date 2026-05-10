@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
 import { CreateExamAction } from "@/components/CreateExamAction";
 import { useWalletConnection } from "@/components/WalletConnectionProvider";
 
@@ -35,8 +36,21 @@ const tokenRows = [
   ["cUSD", "Celo Dollar", "1.35 cUSD", "$1.35"],
 ];
 
+const dashboardActions = [
+  { icon: "⇄", label: "GoodSwap" },
+  { icon: "📚", label: "Learn & Earn", href: "/learn-and-earn" },
+  { icon: "📊", label: "More Ways to Earn G$" },
+  { icon: "↑", label: "Send" },
+  { icon: "G$", label: "Claim" },
+  { icon: "🗓️", label: "Check-in" },
+  { icon: "🌉", label: "Bridge" },
+  { icon: "🏦", label: "Savings" },
+  { icon: "🤝", label: "P2P Trade" },
+];
+
 export function HomeExperience() {
   const { wallet } = useWalletConnection();
+  const [comingSoonMessage, setComingSoonMessage] = useState("");
 
   const shortAddress = useMemo(() => {
     if (!wallet?.address) {
@@ -46,19 +60,29 @@ export function HomeExperience() {
     return `${wallet.address.slice(2, 6).toUpperCase()} •••• ${wallet.address.slice(-4).toUpperCase()}`;
   }, [wallet?.address]);
 
+  function showComingSoon(feature: string) {
+    setComingSoonMessage(`${feature} is coming soon. Learn & Earn is available now.`);
+  }
+
   if (wallet) {
     return (
       <main className="app-dashboard">
+        {comingSoonMessage ? (
+          <div className="coming-soon-toast" role="status" aria-live="polite">
+            {comingSoonMessage}
+          </div>
+        ) : null}
+
         <section className="dashboard-hero">
           <div className="dashboard-topbar">
-            <button className="icon-button" type="button" aria-label="Settings">⚙️</button>
+            <button className="icon-button" type="button" aria-label="Settings" onClick={() => showComingSoon("Settings")}>⚙️</button>
             <div>
               <strong>GoodMarket</strong>
               <span>Learn & Earn hub</span>
             </div>
-            <div className="dashboard-icons" aria-hidden="true">
-              <span>📊</span>
-              <span>🏠</span>
+            <div className="dashboard-icons" aria-label="Dashboard shortcuts">
+              <button type="button" aria-label="Analytics" onClick={() => showComingSoon("Analytics")}>📊</button>
+              <button type="button" aria-label="Home shortcut" onClick={() => showComingSoon("Home shortcut")}>🏠</button>
             </div>
           </div>
 
@@ -80,11 +104,18 @@ export function HomeExperience() {
               </div>
 
               <nav className="earn-menu" aria-label="Learn and earn actions">
-                {["GoodSwap", "Learn & Earn", "More Ways to Earn G$", "Send", "Claim", "Check-in", "Bridge", "Savings", "P2P Trade"].map((item, index) => (
-                  <a className={index === 1 ? "active" : ""} href={index === 1 ? "#learn-modules" : "#learn-focus"} key={item}>
-                    <span>{["⇄", "📚", "📊", "↑", "G$", "🗓️", "🌉", "🏦", "🤝"][index]}</span>
-                    {item}
-                  </a>
+                {dashboardActions.map(action => (
+                  action.href ? (
+                    <Link className="active" href={action.href} key={action.label}>
+                      <span>{action.icon}</span>
+                      {action.label}
+                    </Link>
+                  ) : (
+                    <button type="button" onClick={() => showComingSoon(action.label)} key={action.label}>
+                      <span>{action.icon}</span>
+                      {action.label}
+                    </button>
+                  )
                 ))}
               </nav>
             </aside>
@@ -94,13 +125,13 @@ export function HomeExperience() {
                 <span className="eyebrow">Connected learner</span>
                 <h1>Focus on Learn & Earn.</h1>
                 <p>
-                  Your wallet is ready. Start with a module, complete the quiz, then claim eligible G$ rewards when the reward pool is funded.
+                  Your wallet is ready. Open the Learn & Earn page to draft an exam that follows the GoodLearnExam and reward pool contract settings.
                 </p>
               </div>
 
               <div className="learn-tabs" role="tablist" aria-label="Dashboard tabs">
-                <button className="active" type="button">Crypto</button>
-                <button type="button">Transactions</button>
+                <button className="active" type="button" onClick={() => showComingSoon("Crypto tab")}>Crypto</button>
+                <button type="button" onClick={() => showComingSoon("Transactions")}>Transactions</button>
               </div>
 
               <div className="token-list" aria-label="Supported tokens">
@@ -135,7 +166,7 @@ export function HomeExperience() {
                 <p>{body}</p>
                 <div>
                   <span>{time}</span>
-                  <button className="button" type="button">Start lesson</button>
+                  <button className="button" type="button" onClick={() => showComingSoon(`${title} lesson`)}>Start lesson</button>
                 </div>
               </article>
             ))}
