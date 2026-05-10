@@ -72,7 +72,7 @@ export function QuestionBuilder() {
   return (
     <div className="builder-layout">
       <section className="form builder-form">
-        <fieldset>
+        <fieldset className="settings-card">
           <legend>Exam settings</legend>
           <div className="grid compact-grid">
             <label>
@@ -137,8 +137,10 @@ export function QuestionBuilder() {
       </section>
 
       <aside className="card summary publish-panel">
-        <span className="badge">Ready to publish</span>
-        <h2>Exam summary</h2>
+        <div className="publish-panel-heading">
+          <span className="badge">Ready to publish</span>
+          <h2>Exam summary</h2>
+        </div>
         <div className="summary-list">
           <p><strong>{completedQuestions.length}</strong><span>questionCount</span></p>
           <p><strong>{requiredPool.toLocaleString()} G$</strong><span>GoodLearnRewardPool requiredAmount</span></p>
