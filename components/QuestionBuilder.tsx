@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { keccak256, toBytes, toHex, type Hex } from "viem";
+import { encodePacked, keccak256, toBytes, toHex, type Hex } from "viem";
 import { getInjectedProvider, parseFirstAccount, useWalletConnection, type EthereumProvider } from "@/components/WalletConnectionProvider";
 import { buildQuestionSetHashInput, type DraftQuestion } from "@/lib/questions";
 import { CELO_CHAIN_ID, GOODLEARN_EXAM_ADDRESS, decodeExamCreatedLog, getCreateExamData, getPublishFeeData } from "@/lib/goodlearnExam";
@@ -74,9 +74,13 @@ export function QuestionBuilder() {
     () => (completedQuestions.length > 0 ? keccak256(toBytes(previewPayload)) : "Waiting for completed questions"),
     [completedQuestions.length, previewPayload],
   );
+  const answerSecretBytes32 = useMemo(
+    () => (answerSecret.trim() ? keccak256(toBytes(answerSecret.trim())) : undefined),
+    [answerSecret],
+  );
   const correctAnswerCommitment = useMemo(
-    () => (correctAnswers && answerSecret.trim() ? keccak256(toBytes(`${correctAnswers}:${answerSecret.trim()}`)) : "Waiting for answers and secret"),
-    [answerSecret, correctAnswers],
+    () => (correctAnswers && answerSecretBytes32 ? keccak256(encodePacked(["string", "bytes32"], [correctAnswers, answerSecretBytes32])) : "Waiting for answers and secret"),
+    [answerSecretBytes32, correctAnswers],
   );
 
   async function handlePublish() {
@@ -151,7 +155,18 @@ export function QuestionBuilder() {
       setPublishStatus(`Exam publish transaction submitted. Waiting for the on-chain ExamCreated event: ${transactionHashText}`);
       const onChainExamId = await waitForCreatedExamId(provider, transactionHashText as Hex, GOODLEARN_EXAM_ADDRESS);
       setPublishedExam({ transactionHash: transactionHashText, onChainExamId });
-      setPublishStatus(onChainExamId ? `Exam #${onChainExamId} published on-chain and is ready in the on-chain exam list.` : `Exam publish transaction is on-chain. Open the on-chain exam list after the RPC indexes the ExamCreated event. Transaction: ${transactionHashText}`);
+      persistExamContent({
+        creatorWallet: signerAddress,
+        contractExamId: onChainExamId,
+        questionSetHash: questionSetHash as Hex,
+        questionCount: completedQuestions.length,
+        rewardPerCorrect,
+        maxParticipants,
+        timerSeconds,
+        correctionDelaySeconds,
+        questions: completedQuestions,
+      });
+      setPublishStatus(onChainExamId ? `Exam #${onChainExamId} published on-chain and the learner questions were saved for the Start quiz flow.` : `Exam publish transaction is on-chain and the learner questions were saved locally. Open the on-chain exam list after the RPC indexes the ExamCreated event. Transaction: ${transactionHashText}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Wallet rejected or failed to send the publish transaction.";
       setPublishStatus(message);
@@ -327,6 +342,10 @@ export function QuestionBuilder() {
           <span>correctAnswerCommitment</span>
           <code>{correctAnswerCommitment}</code>
         </div>
+        <div className="hash-preview">
+          <span>creator reveal secret bytes32</span>
+          <code>{answerSecretBytes32 ?? "Waiting for answer reveal secret"}</code>
+        </div>
         <p className="muted">Set the target max reward per participant and the app auto-divides it across completed questions for the contract rewardPerCorrect input. Funding locks the final settings on-chain.</p>
         <p className="muted">Publishing opens MetaMask for the on-chain createExam call. Keep enough CELO for the contract publish fee plus the separate Celo gas/network fee shown by your wallet; this extra wallet fee can vary and may be roughly $0.10 worth of CELO depending on current network conditions.</p>
         {publishStatus ? <p className="wallet-message publish-status" role="status">{publishStatus}</p> : null}
@@ -349,6 +368,33 @@ export function QuestionBuilder() {
       </aside>
     </div>
   );
+}
+
+function persistExamContent(payload: {
+  creatorWallet: string;
+  contractExamId?: string;
+  questionSetHash: Hex;
+  questionCount: number;
+  rewardPerCorrect: number;
+  maxParticipants: number;
+  timerSeconds: number;
+  correctionDelaySeconds: number;
+  questions: DraftQuestion[];
+}) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(`goodlearn.exam.${payload.questionSetHash}`, JSON.stringify(payload));
+    if (payload.contractExamId) {
+      window.localStorage.setItem(`goodlearn.examId.${payload.contractExamId}`, payload.questionSetHash);
+    }
+  }
+
+  fetch("/api/exams", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {
+    // The local browser cache is enough for the current creator session; Supabase keeps public learner content when configured.
+  });
 }
 
 type TransactionReceiptLog = {

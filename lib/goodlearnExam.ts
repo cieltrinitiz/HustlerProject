@@ -5,7 +5,8 @@ export const CELO_CHAIN_ID = "0xa4ec";
 export const GOODLEARN_EXAM_ADDRESS = process.env.NEXT_PUBLIC_GOODLEARN_EXAM_ADDRESS as Hex | undefined;
 export const GOODLEARN_EXAM_DEPLOY_BLOCK = BigInt(process.env.NEXT_PUBLIC_GOODLEARN_EXAM_DEPLOY_BLOCK || "0");
 export const GOODLEARN_EXAM_RPC_URL = process.env.NEXT_PUBLIC_CELO_RPC_URL || "https://forno.celo.org";
-export const GOODLEARN_EXAM_ENUMERATION_LIMIT = Number(process.env.NEXT_PUBLIC_GOODLEARN_EXAM_ENUMERATION_LIMIT || "250");
+export const GOODLEARN_EXAM_ENUMERATION_LIMIT = Number(process.env.NEXT_PUBLIC_GOODLEARN_EXAM_ENUMERATION_LIMIT || "50");
+export const GOODLEARN_EXAM_EVENT_LOOKUP_LIMIT = Number(process.env.NEXT_PUBLIC_GOODLEARN_EXAM_EVENT_LOOKUP_LIMIT || "25");
 
 export const goodLearnExamAbi = [
   {
@@ -83,6 +84,16 @@ export const goodLearnExamAbi = [
     ],
     outputs: [{ type: "uint256" }],
   },
+  {
+    type: "function",
+    name: "submitAnswers",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "examId", type: "uint256" },
+      { name: "answerCommitment", type: "bytes32" },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 export type GoodLearnExamRecord = {
@@ -118,6 +129,10 @@ export function getCreateExamData(args: readonly [Hex, Hex, bigint, bigint, bigi
   return encodeFunctionData({ abi: goodLearnExamAbi, functionName: "createExam", args });
 }
 
+export function getSubmitAnswersData(args: readonly [bigint, Hex]) {
+  return encodeFunctionData({ abi: goodLearnExamAbi, functionName: "submitAnswers", args });
+}
+
 export function getPublishFeeData() {
   return encodeFunctionData({ abi: goodLearnExamAbi, functionName: "publishFee" });
 }
@@ -144,30 +159,17 @@ export async function getOnChainExamListings(contractAddress: Hex = GOODLEARN_EX
   }
 
   const client = createGoodLearnPublicClient();
+  const listings = await getListingsByEnumeratingExamIds(client, contractAddress);
 
-  try {
-    const logs = await client.getContractEvents({
-      address: contractAddress,
-      abi: goodLearnExamAbi,
-      eventName: "ExamCreated",
-      fromBlock: GOODLEARN_EXAM_DEPLOY_BLOCK,
-      toBlock: "latest",
-    });
-
-    if (logs.length > 0) {
-      return getListingsFromLogs(client, contractAddress, logs as ExamCreatedLog[]);
-    }
-  } catch (error) {
-    const listings = await getListingsByEnumeratingExamIds(client, contractAddress);
-
-    if (listings.length > 0) {
-      return listings;
-    }
-
-    throw error;
+  if (listings.length === 0 || GOODLEARN_EXAM_EVENT_LOOKUP_LIMIT <= 0) {
+    return listings;
   }
 
-  return getListingsByEnumeratingExamIds(client, contractAddress);
+  try {
+    return await hydrateListingsWithRecentEventMetadata(client, contractAddress, listings);
+  } catch {
+    return listings;
+  }
 }
 
 type GoodLearnPublicClient = ReturnType<typeof createGoodLearnPublicClient>;
@@ -177,16 +179,28 @@ type ExamCreatedLog = {
   blockNumber?: bigint | null;
 };
 
-async function getListingsFromLogs(client: GoodLearnPublicClient, contractAddress: Hex, logs: ExamCreatedLog[]) {
-  const uniqueExamIds = [...new Set(logs.map(log => log.args.examId?.toString()).filter((examId): examId is string => Boolean(examId)))];
-  const listings = await Promise.all(uniqueExamIds.map(async examIdText => {
-    const examId = BigInt(examIdText);
-    const log = logs.find(candidate => candidate.args.examId === examId);
+async function hydrateListingsWithRecentEventMetadata(client: GoodLearnPublicClient, contractAddress: Hex, listings: OnChainExamListing[]) {
+  const idsToHydrate = new Set(listings.slice(0, GOODLEARN_EXAM_EVENT_LOOKUP_LIMIT).map(exam => exam.examId.toString()));
+  const logs = await client.getContractEvents({
+    address: contractAddress,
+    abi: goodLearnExamAbi,
+    eventName: "ExamCreated",
+    fromBlock: GOODLEARN_EXAM_DEPLOY_BLOCK,
+    toBlock: "latest",
+  }) as ExamCreatedLog[];
+  const metadataById = new Map(logs
+    .filter(log => log.args.examId && idsToHydrate.has(log.args.examId.toString()))
+    .map(log => [log.args.examId?.toString(), log]));
 
-    return getListingByExamId(client, contractAddress, examId, log);
-  }));
+  return listings.map(exam => {
+    const log = metadataById.get(exam.examId.toString());
 
-  return sortListings(listings);
+    return {
+      ...exam,
+      transactionHash: log?.transactionHash ?? exam.transactionHash,
+      blockNumber: log?.blockNumber ?? exam.blockNumber,
+    };
+  });
 }
 
 async function getListingsByEnumeratingExamIds(client: GoodLearnPublicClient, contractAddress: Hex) {
@@ -205,14 +219,12 @@ async function getListingsByEnumeratingExamIds(client: GoodLearnPublicClient, co
   return sortListings(listings);
 }
 
-async function getListingByExamId(client: GoodLearnPublicClient, contractAddress: Hex, examId: bigint, log?: ExamCreatedLog): Promise<OnChainExamListing> {
+async function getListingByExamId(client: GoodLearnPublicClient, contractAddress: Hex, examId: bigint): Promise<OnChainExamListing> {
   const exam = await client.readContract({ address: contractAddress, abi: goodLearnExamAbi, functionName: "getExam", args: [examId] }) as GoodLearnExamRecord;
 
   return {
     ...exam,
     examId,
-    transactionHash: log?.transactionHash ?? undefined,
-    blockNumber: log?.blockNumber ?? undefined,
     status: getExamStatus(exam),
   };
 }

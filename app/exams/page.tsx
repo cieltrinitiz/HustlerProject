@@ -1,11 +1,27 @@
 import Link from "next/link";
+import { ExamTakeAction, type LearnerQuestion } from "@/components/ExamTakeAction";
 import { getOnChainExamListings, type OnChainExamListing } from "@/lib/goodlearnExam";
+import { createSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
+
+type StoredExamContent = {
+  contract_exam_id: string | null;
+  question_set_hash: string;
+  questions: Array<{
+    question_index: number;
+    prompt: string;
+    choice_a: string;
+    choice_b: string;
+    choice_c: string;
+    choice_d: string;
+  }> | null;
+};
 
 export default async function ExamsPage() {
   let exams: OnChainExamListing[] = [];
   let errorMessage = "";
+  const contentByExamId = await getStoredExamContent();
 
   try {
     const onChainExams = await getOnChainExamListings();
@@ -21,7 +37,7 @@ export default async function ExamsPage() {
           <span className="eyebrow pill-eyebrow">On-chain exam list</span>
           <h1>Find active Learn & Earn exams.</h1>
           <p>
-            GoodLearnExam is the source of truth for active exams. This page reads the on-chain ExamCreated events and current contract settings from Celo; Supabase is not used for exam creation or exam listing transactions.
+            GoodLearnExam is the source of truth for exam timing, rewards, hashes, and submissions. The list now loads directly by on-chain exam ID first, so learners do not wait for a slow full RPC event scan before seeing exams.
           </p>
           <div className="actions">
             <Link className="button" href="/learn-and-earn">Create another exam</Link>
@@ -49,34 +65,84 @@ export default async function ExamsPage() {
 
       {exams.length > 0 ? (
         <section className="exam-list" aria-label="Active on-chain exams">
-          {exams.map(exam => (
-            <article className="card exam-list-card" key={exam.examId.toString()}>
-              <div className="exam-list-card-heading">
-                <div>
-                  <span className="badge">{exam.status}</span>
-                  <h2>Exam #{exam.examId.toString()}</h2>
+          {exams.map(exam => {
+            const questions = contentByExamId.get(exam.examId.toString()) ?? contentByExamId.get(exam.questionSetHash.toLowerCase()) ?? [];
+
+            return (
+              <article className="card exam-list-card" key={exam.examId.toString()}>
+                <div className="exam-list-card-heading">
+                  <div>
+                    <span className="badge">{exam.status}</span>
+                    <h2>Exam #{exam.examId.toString()}</h2>
+                  </div>
+                  <time dateTime={new Date(Number(exam.startTime) * 1000).toISOString()}>{formatWindow(exam.startTime, exam.endTime)}</time>
                 </div>
-                <time dateTime={new Date(Number(exam.startTime) * 1000).toISOString()}>{formatWindow(exam.startTime, exam.endTime)}</time>
-              </div>
-              <div className="exam-list-stats">
-                <p><strong>{exam.questionCount.toString()}</strong><span>questions</span></p>
-                <p><strong>{exam.rewardPerCorrect.toString()} G$</strong><span>per correct</span></p>
-                <p><strong>{exam.maxParticipants.toString()}</strong><span>max learners</span></p>
-                <p><strong>{exam.timerSeconds.toString()} sec</strong><span>timer</span></p>
-              </div>
-              <div className="exam-list-hashes">
-                <p><span>Creator</span><code>{shortHash(exam.creator)}</code></p>
-                <p><span>On-chain moduleId</span><code>{exam.moduleId}</code></p>
-                <p><span>On-chain question hash</span><code>{exam.questionSetHash}</code></p>
-                <p><span>On-chain exam ID</span><code>{exam.examId.toString()}</code></p>
-                <p><span>Contract tx</span><code>{formatTransactionHash(exam.transactionHash)}</code></p>
-              </div>
-            </article>
-          ))}
+                <div className="exam-list-stats">
+                  <p><strong>{exam.questionCount.toString()}</strong><span>questions</span></p>
+                  <p><strong>{exam.rewardPerCorrect.toString()} G$</strong><span>per correct</span></p>
+                  <p><strong>{exam.maxParticipants.toString()}</strong><span>max learners</span></p>
+                  <p><strong>{exam.timerSeconds.toString()} sec</strong><span>timer</span></p>
+                </div>
+                <ExamTakeAction
+                  examId={exam.examId.toString()}
+                  initialQuestions={questions}
+                  questionSetHash={exam.questionSetHash}
+                  status={exam.status}
+                  timerSeconds={Number(exam.timerSeconds)}
+                />
+                <div className="exam-list-hashes">
+                  <p><span>Creator</span><code>{shortHash(exam.creator)}</code></p>
+                  <p><span>On-chain moduleId</span><code>{exam.moduleId}</code></p>
+                  <p><span>On-chain question hash</span><code>{exam.questionSetHash}</code></p>
+                  <p><span>On-chain exam ID</span><code>{exam.examId.toString()}</code></p>
+                  <p><span>Contract tx</span><code>{formatTransactionHash(exam.transactionHash)}</code></p>
+                </div>
+              </article>
+            );
+          })}
         </section>
       ) : null}
     </main>
   );
+}
+
+async function getStoredExamContent() {
+  const contentByKey = new Map<string, LearnerQuestion[]>();
+
+  try {
+    const supabase = createSupabaseAdmin();
+    const { data, error } = await supabase
+      .from("exams")
+      .select("contract_exam_id,question_set_hash,questions(question_index,prompt,choice_a,choice_b,choice_c,choice_d)")
+      .in("status", ["published", "active", "corrected"]);
+
+    if (error) {
+      return contentByKey;
+    }
+
+    for (const exam of (data ?? []) as StoredExamContent[]) {
+      const questions = (exam.questions ?? [])
+        .sort((left, right) => left.question_index - right.question_index)
+        .map(question => ({
+          questionIndex: question.question_index,
+          prompt: question.prompt,
+          choiceA: question.choice_a,
+          choiceB: question.choice_b,
+          choiceC: question.choice_c,
+          choiceD: question.choice_d,
+        }));
+
+      if (exam.contract_exam_id) {
+        contentByKey.set(exam.contract_exam_id, questions);
+      }
+
+      contentByKey.set(exam.question_set_hash.toLowerCase(), questions);
+    }
+  } catch {
+    return contentByKey;
+  }
+
+  return contentByKey;
 }
 
 function shortHash(value: string) {
@@ -85,7 +151,7 @@ function shortHash(value: string) {
 
 function formatTransactionHash(value?: string | null) {
   if (!value) {
-    return "Unavailable from RPC event lookup";
+    return "Exam data loaded on-chain; tx hash not indexed by this RPC";
   }
 
   return shortHash(value);
