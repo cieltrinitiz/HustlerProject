@@ -127,7 +127,7 @@ export function QuestionBuilder() {
     }
 
     setIsPublishing(true);
-    setPublishStatus("Opening wallet. Please approve the GoodLearnExam createExam transaction.");
+    setPublishStatus("Opening wallet. MetaMask will show the contract publish fee plus a separate Celo network gas fee.");
 
     try {
       await switchToCelo(provider);
@@ -138,6 +138,7 @@ export function QuestionBuilder() {
       const startTime = BigInt(now + startDelaySeconds);
       const endTime = BigInt(now + startDelaySeconds + examDurationSeconds);
       const publishFee = await readPublishFee(provider, GOODLEARN_EXAM_ADDRESS);
+      setPublishStatus(`Confirm in MetaMask: ${formatCeloAmount(publishFee)} publish fee plus the separate Celo network gas fee.`);
       const data = encodeFunctionData({
         abi: goodLearnExamAbi,
         functionName: "createExam",
@@ -357,6 +358,7 @@ export function QuestionBuilder() {
           <code>{correctAnswerCommitment}</code>
         </div>
         <p className="muted">Set the target max reward per participant and the app auto-divides it across completed questions for the contract rewardPerCorrect input. Funding locks the final settings on-chain.</p>
+        <p className="muted">Publishing opens MetaMask for the on-chain createExam call. Keep enough CELO for the contract publish fee plus the separate Celo network gas fee shown by your wallet.</p>
         {publishStatus ? <p className="wallet-message publish-status" role="status">{publishStatus}</p> : null}
         <button className="button publish-button" disabled={completedQuestions.length === 0 || isPublishing} onClick={handlePublish} type="button">
           {isPublishing ? "Publishing..." : "Submit and publish"}
@@ -364,6 +366,20 @@ export function QuestionBuilder() {
       </aside>
     </div>
   );
+}
+
+function formatCeloAmount(value: bigint) {
+  const celoDecimals = 18n;
+  const base = 10n ** celoDecimals;
+  const whole = value / base;
+  const fraction = value % base;
+
+  if (fraction === 0n) {
+    return `${whole.toString()} CELO`;
+  }
+
+  const trimmedFraction = fraction.toString().padStart(Number(celoDecimals), "0").replace(/0+$/, "");
+  return `${whole.toString()}.${trimmedFraction} CELO`;
 }
 
 async function readPublishFee(provider: EthereumProvider, contractAddress: Hex) {
