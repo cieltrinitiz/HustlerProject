@@ -13,7 +13,7 @@
 1. Create module content in Supabase.
 2. Fill Question 1; Question 2 appears after Question 1 is complete.
 3. Keep questions as drafts while editing.
-4. Set max participants, reward per correct answer, timer, start/end time, and correction delay.
+4. Set max participants, max reward per participant, timer, start/end time, and correction delay. The UI auto-divides the per-participant max across completed questions for the contract `rewardPerCorrect` value.
 5. Submit/Publish.
 6. Hash the question set and answer commitment.
 7. Pay the publish fee and fund the G$ pool.
@@ -31,8 +31,10 @@
 ## Reward formula
 
 ```txt
+rewardPerCorrect = floor(maxRewardPerParticipant ÷ questionCount)
 reward = correctAnswerCount × rewardPerCorrect
-requiredPool = questionCount × rewardPerCorrect × maxParticipants
+actualMaxRewardPerParticipant = questionCount × rewardPerCorrect
+requiredPool = actualMaxRewardPerParticipant × maxParticipants
 ```
 
 ## Fee model

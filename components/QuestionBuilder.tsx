@@ -14,6 +14,8 @@ const emptyQuestion = (id: number): DraftQuestion => ({
   correctAnswer: "A",
 });
 
+const DEFAULT_MAX_REWARD_PER_LEARNER = 1000;
+
 const isComplete = (question: DraftQuestion) =>
   question.prompt.trim() !== "" &&
   question.choiceA.trim() !== "" &&
@@ -24,7 +26,7 @@ const isComplete = (question: DraftQuestion) =>
 export function QuestionBuilder() {
   const [questions, setQuestions] = useState<DraftQuestion[]>([emptyQuestion(1)]);
   const [moduleKey, setModuleKey] = useState("goodmarket-gs-basics");
-  const [rewardPerCorrect, setRewardPerCorrect] = useState(100);
+  const [maxRewardPerLearner, setMaxRewardPerLearner] = useState(DEFAULT_MAX_REWARD_PER_LEARNER);
   const [maxParticipants, setMaxParticipants] = useState(100);
   const [timerSeconds, setTimerSeconds] = useState(30);
   const [startDelayHours, setStartDelayHours] = useState(1);
@@ -34,7 +36,10 @@ export function QuestionBuilder() {
 
   const completedQuestions = questions.filter(isComplete);
   const correctAnswers = completedQuestions.map(question => question.correctAnswer).join("");
-  const requiredPool = completedQuestions.length * rewardPerCorrect * maxParticipants;
+  const rewardPerCorrect = completedQuestions.length > 0 ? Math.floor(maxRewardPerLearner / completedQuestions.length) : 0;
+  const perLearnerMaxReward = completedQuestions.length * rewardPerCorrect;
+  const unusedRewardRemainder = maxRewardPerLearner - perLearnerMaxReward;
+  const requiredPool = perLearnerMaxReward * maxParticipants;
 
   const previewPayload = useMemo(
     () => buildQuestionSetHashInput(completedQuestions, timerSeconds),
@@ -80,8 +85,8 @@ export function QuestionBuilder() {
               <input placeholder="goodmarket-gs-basics" value={moduleKey} onChange={event => setModuleKey(event.target.value)} />
             </label>
             <label>
-              Reward per correct answer (G$)
-              <input min={1} type="number" value={rewardPerCorrect} onChange={event => setRewardPerCorrect(Number(event.target.value))} />
+              Max reward per participant (G$)
+              <input min={1} type="number" value={maxRewardPerLearner} onChange={event => setMaxRewardPerLearner(Number(event.target.value))} />
             </label>
             <label>
               Max participants
@@ -143,7 +148,12 @@ export function QuestionBuilder() {
         </div>
         <div className="summary-list">
           <p><strong>{completedQuestions.length}</strong><span>questionCount</span></p>
-          <p><strong>{requiredPool.toLocaleString()} G$</strong><span>GoodLearnRewardPool requiredAmount</span></p>
+          <p><strong>{maxRewardPerLearner.toLocaleString()} G$</strong><span>max reward target per participant</span></p>
+          <p><strong>{rewardPerCorrect.toLocaleString()} G$</strong><span>auto reward per correct answer</span></p>
+          <p><strong>{maxParticipants.toLocaleString()}</strong><span>maxParticipants</span></p>
+          <p><strong>{perLearnerMaxReward.toLocaleString()} G$</strong><span>actual max payout per learner</span></p>
+          {unusedRewardRemainder > 0 && <p><strong>{unusedRewardRemainder.toLocaleString()} G$</strong><span>undistributed remainder from target</span></p>}
+          <p><strong>{requiredPool.toLocaleString()} G$</strong><span>required pool = actual max payout × max participants</span></p>
           <p><strong>{timerSeconds}s</strong><span>timerSeconds</span></p>
           <p><strong>{startDelaySeconds.toLocaleString()}s</strong><span>startTime offset</span></p>
           <p><strong>{examDurationSeconds.toLocaleString()}s</strong><span>endTime window</span></p>
@@ -161,7 +171,7 @@ export function QuestionBuilder() {
           <span>correctAnswerCommitment</span>
           <code>{correctAnswerCommitment}</code>
         </div>
-        <p className="muted">These values mirror the createExam contract inputs. Fund the matching pool with questionCount × rewardPerCorrect × maxParticipants after publishing.</p>
+        <p className="muted">Set the target max reward per participant and the app auto-divides it across completed questions for the contract rewardPerCorrect input. Required pool still reserves enough G$ for every allowed learner: actual max payout × maxParticipants.</p>
         <button className="button" disabled={completedQuestions.length === 0} type="button">
           Submit and publish
         </button>

@@ -15,7 +15,7 @@ The app uses a hybrid architecture:
 
 1. Draft learning module content off-chain.
 2. Add questions dynamically in the UI. Question 2 appears after Question 1 is complete, and so on.
-3. Set reward per correct answer, max participants, timer per question, schedule, and correction delay.
+3. Set the max reward per participant, max participants, timer per question, schedule, and correction delay. The UI auto-divides the per-participant max across completed questions for the contract `rewardPerCorrect` value.
 4. Click Submit/Publish.
 5. Generate a question set hash and correct-answer commitment.
 6. Publish the exam on-chain and pay the one-time CELO publish fee.
@@ -32,8 +32,10 @@ The app uses a hybrid architecture:
 6. Reveal answers and claim G$ rewards based on score.
 
 ```txt
+rewardPerCorrect = floor(maxRewardPerParticipant ÷ questionCount)
 reward = correctAnswerCount × rewardPerCorrect
-requiredPool = questionCount × rewardPerCorrect × maxParticipants
+actualMaxRewardPerParticipant = questionCount × rewardPerCorrect
+requiredPool = actualMaxRewardPerParticipant × maxParticipants
 ```
 
 ## Project structure
