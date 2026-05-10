@@ -1,54 +1,15 @@
 import Link from "next/link";
-import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { getOnChainExamListings, type OnChainExamListing } from "@/lib/goodlearnExam";
 
 export const dynamic = "force-dynamic";
 
-type SupabaseExamMirror = {
-  id: string;
-  module_id: string | null;
-  question_set_hash: string | null;
-};
-
-type ExamListItem = OnChainExamListing & {
-  supabaseRecordId?: string;
-  supabaseModuleId?: string | null;
-};
-
-async function getSupabaseMirrors(questionSetHashes: string[]) {
-  if (questionSetHashes.length === 0) {
-    return new Map<string, SupabaseExamMirror>();
-  }
-
-  try {
-    const supabase = createSupabaseAdmin();
-    const { data } = await supabase
-      .from("exams")
-      .select("id,module_id,question_set_hash")
-      .in("question_set_hash", questionSetHashes);
-
-    return new Map((data ?? []).map(row => [row.question_set_hash, row as SupabaseExamMirror]));
-  } catch {
-    return new Map<string, SupabaseExamMirror>();
-  }
-}
-
 export default async function ExamsPage() {
-  let exams: ExamListItem[] = [];
+  let exams: OnChainExamListing[] = [];
   let errorMessage = "";
 
   try {
     const onChainExams = await getOnChainExamListings();
-    const activeOnChainExams = onChainExams.filter(exam => exam.status === "active" || exam.status === "upcoming");
-    const supabaseMirrors = await getSupabaseMirrors(activeOnChainExams.map(exam => exam.questionSetHash));
-    exams = activeOnChainExams.map(exam => {
-      const mirror = supabaseMirrors.get(exam.questionSetHash);
-      return {
-        ...exam,
-        supabaseRecordId: mirror?.id,
-        supabaseModuleId: mirror?.module_id,
-      };
-    });
+    exams = onChainExams.filter(exam => exam.status === "active" || exam.status === "upcoming");
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : "Unable to load on-chain exams.";
   }
@@ -60,7 +21,7 @@ export default async function ExamsPage() {
           <span className="eyebrow pill-eyebrow">On-chain exam list</span>
           <h1>Find active Learn & Earn exams.</h1>
           <p>
-            GoodLearnExam is the source of truth for active exams: the page reads ExamCreated events and current contract settings from Celo. Supabase is only used as an optional mirror for readable question content and discovery metadata.
+            GoodLearnExam is the source of truth for active exams. This page reads the on-chain ExamCreated events and current contract settings from Celo; Supabase is not used for exam creation or exam listing transactions.
           </p>
           <div className="actions">
             <Link className="button" href="/learn-and-earn">Create another exam</Link>
@@ -108,9 +69,7 @@ export default async function ExamsPage() {
                 <p><span>On-chain moduleId</span><code>{exam.moduleId}</code></p>
                 <p><span>On-chain question hash</span><code>{exam.questionSetHash}</code></p>
                 <p><span>On-chain exam ID</span><code>{exam.examId.toString()}</code></p>
-                <p><span>Contract tx</span><code>{shortHash(exam.transactionHash)}</code></p>
-                <p><span>Supabase content mirror</span><code>{exam.supabaseRecordId ?? "Not mirrored yet"}</code></p>
-                <p><span>Supabase module mirror</span><code>{exam.supabaseModuleId ?? "Not mirrored / not required"}</code></p>
+                <p><span>Contract tx</span><code>{formatTransactionHash(exam.transactionHash)}</code></p>
               </div>
             </article>
           ))}
@@ -120,12 +79,16 @@ export default async function ExamsPage() {
   );
 }
 
-function shortHash(value?: string | null) {
+function shortHash(value: string) {
+  return value.length > 16 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value;
+}
+
+function formatTransactionHash(value?: string | null) {
   if (!value) {
-    return "pending";
+    return "Unavailable from RPC event lookup";
   }
 
-  return value.length > 16 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value;
+  return shortHash(value);
 }
 
 function formatWindow(startTime: bigint, endTime: bigint) {
