@@ -48,7 +48,7 @@ export default async function ExamsPage() {
           <span className="eyebrow pill-eyebrow">Exam list</span>
           <h1>Find published Learn & Earn exams.</h1>
           <p>
-            After a creator signs the blockchain transaction, the create page hides the publish button and saves the exam here so learners and creators have one place to find it.
+            The contract is the source of truth for the exam ID, settings, and question hash. Supabase is only the off-chain content index for readable question text and discovery.
           </p>
           <div className="actions">
             <Link className="button" href="/learn-and-earn">Create another exam</Link>
@@ -81,7 +81,7 @@ export default async function ExamsPage() {
               <div className="exam-list-card-heading">
                 <div>
                   <span className="badge">{exam.status ?? "published"}</span>
-                  <h2>Exam {shortHash(exam.module_id ?? exam.id)}</h2>
+                  <h2>Exam {exam.contract_exam_id ? `#${exam.contract_exam_id}` : shortHash(exam.id)}</h2>
                 </div>
                 <time dateTime={exam.created_at ?? undefined}>{formatDate(exam.created_at)}</time>
               </div>
@@ -93,9 +93,10 @@ export default async function ExamsPage() {
               </div>
               <div className="exam-list-hashes">
                 <p><span>Creator</span><code>{shortHash(exam.creator_wallet)}</code></p>
-                <p><span>Module ID</span><code>{exam.module_id}</code></p>
-                <p><span>Question hash</span><code>{exam.question_set_hash}</code></p>
-                <p><span>Publish tx</span><code>{exam.contract_exam_id}</code></p>
+                <p><span>Supabase record</span><code>{exam.id}</code></p>
+                <p><span>Linked module record</span><code>{exam.module_id ?? "Off-chain module not linked"}</code></p>
+                <p><span>On-chain question hash</span><code>{exam.question_set_hash}</code></p>
+                <p><span>On-chain exam ID</span><code>{exam.contract_exam_id ?? "Waiting for ExamCreated event"}</code></p>
               </div>
             </article>
           ))}

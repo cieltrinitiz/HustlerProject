@@ -1434,6 +1434,10 @@ body {
   margin-top: 20px;
 }
 
+.exams-hero p strong {
+  color: #0f172a;
+}
+
 .exam-list {
   display: grid;
   gap: 18px;
