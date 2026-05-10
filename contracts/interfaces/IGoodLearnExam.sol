@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 interface IGoodLearnExam {
+    function lockExamSettings(uint256 examId) external;
+
     function getExamRewardConfig(uint256 examId)
         external
         view

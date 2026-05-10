@@ -70,6 +70,8 @@ contract GoodLearnRewardPool {
         require(creator == msg.sender, "Not exam creator");
         require(!pools[examId].funded, "Already funded");
 
+        examContract.lockExamSettings(examId);
+
         uint256 requiredAmount = questionCount * rewardPerCorrect * maxParticipants;
         require(requiredAmount > 0, "Invalid pool");
 
