@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { encodeFunctionData, keccak256, toBytes, toHex, type Hex } from "viem";
 import { getInjectedProvider, parseFirstAccount, useWalletConnection, type EthereumProvider } from "@/components/WalletConnectionProvider";
@@ -70,6 +71,7 @@ export function QuestionBuilder() {
   const [correctionDelayDays, setCorrectionDelayDays] = useState(1);
   const [answerSecret, setAnswerSecret] = useState("goodmarket-secret");
   const [publishStatus, setPublishStatus] = useState("");
+  const [publishedExam, setPublishedExam] = useState<{ transactionHash: string; examRecordId?: string } | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
 
   const completedQuestions = questions.filter(isComplete);
@@ -105,6 +107,11 @@ export function QuestionBuilder() {
   );
 
   async function handlePublish() {
+    if (publishedExam) {
+      setPublishStatus("This exam is already published in this session. Open the exams page instead of submitting another wallet transaction.");
+      return;
+    }
+
     if (!wallet) {
       setPublishStatus("Connect your wallet first so the contract transaction can be signed.");
       return;
@@ -165,23 +172,36 @@ export function QuestionBuilder() {
           value: toHex(publishFee),
         }],
       });
+      const transactionHashText = String(transactionHash);
+      setPublishedExam({ transactionHash: transactionHashText });
+      setPublishStatus(`Exam published on-chain. Transaction submitted: ${transactionHashText}`);
 
-      void fetch("/api/publish-exam", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          moduleId,
-          creatorWallet: signerAddress,
-          contractExamId: typeof transactionHash === "string" ? transactionHash : undefined,
-          questionSetHash,
-          questionCount: completedQuestions.length,
-          rewardPerCorrect: String(rewardPerCorrect),
-          maxParticipants,
-          timerSeconds,
-        }),
-      }).catch(() => undefined);
+      try {
+        const publishResponse = await fetch("/api/publish-exam", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            moduleId,
+            creatorWallet: signerAddress,
+            contractExamId: typeof transactionHash === "string" ? transactionHash : undefined,
+            questionSetHash,
+            questionCount: completedQuestions.length,
+            rewardPerCorrect: String(rewardPerCorrect),
+            maxParticipants,
+            timerSeconds,
+          }),
+        });
 
-      setPublishStatus(`Publish transaction submitted: ${String(transactionHash)}`);
+        if (publishResponse.ok) {
+          const result = await publishResponse.json() as { exam?: { id?: string } };
+          setPublishedExam({ transactionHash: transactionHashText, examRecordId: result.exam?.id });
+          setPublishStatus(`Exam published and saved to the exam list. Transaction: ${transactionHashText}`);
+        } else {
+          setPublishStatus(`Exam published on-chain, but saving it to the exam list failed. Transaction: ${transactionHashText}`);
+        }
+      } catch {
+        setPublishStatus(`Exam published on-chain, but saving it to the exam list failed. Transaction: ${transactionHashText}`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Wallet rejected or failed to send the publish transaction.";
       setPublishStatus(message);
@@ -360,9 +380,22 @@ export function QuestionBuilder() {
         <p className="muted">Set the target max reward per participant and the app auto-divides it across completed questions for the contract rewardPerCorrect input. Funding locks the final settings on-chain.</p>
         <p className="muted">Publishing opens MetaMask for the on-chain createExam call. Keep enough CELO for the contract publish fee plus the separate Celo gas/network fee shown by your wallet; this extra wallet fee can vary and may be roughly $0.10 worth of CELO depending on current network conditions.</p>
         {publishStatus ? <p className="wallet-message publish-status" role="status">{publishStatus}</p> : null}
-        <button className="button publish-button" disabled={completedQuestions.length === 0 || isPublishing} onClick={handlePublish} type="button">
-          {isPublishing ? "Publishing..." : "Submit and publish"}
-        </button>
+        {publishedExam ? (
+          <div className="published-exam-card" role="status">
+            <span className="badge">Published</span>
+            <h3>Exam is already on-chain</h3>
+            <p>The publish button is hidden now so you do not accidentally sign again and pay another gas fee.</p>
+            <code>{publishedExam.transactionHash}</code>
+            <div className="published-exam-actions">
+              <Link className="button" href="/exams">Open exam list</Link>
+              {publishedExam.examRecordId ? <span>Saved record: {publishedExam.examRecordId}</span> : null}
+            </div>
+          </div>
+        ) : (
+          <button className="button publish-button" disabled={completedQuestions.length === 0 || isPublishing} onClick={handlePublish} type="button">
+            {isPublishing ? "Publishing..." : "Submit and publish"}
+          </button>
+        )}
       </aside>
     </div>
   );
