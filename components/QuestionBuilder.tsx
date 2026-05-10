@@ -23,21 +23,38 @@ const isComplete = (question: DraftQuestion) =>
 
 export function QuestionBuilder() {
   const [questions, setQuestions] = useState<DraftQuestion[]>([emptyQuestion(1)]);
+  const [moduleKey, setModuleKey] = useState("goodmarket-gs-basics");
   const [rewardPerCorrect, setRewardPerCorrect] = useState(100);
   const [maxParticipants, setMaxParticipants] = useState(100);
   const [timerSeconds, setTimerSeconds] = useState(30);
+  const [startDelayHours, setStartDelayHours] = useState(1);
+  const [durationDays, setDurationDays] = useState(7);
+  const [correctionDelayDays, setCorrectionDelayDays] = useState(1);
+  const [answerSecret, setAnswerSecret] = useState("goodmarket-secret");
 
   const completedQuestions = questions.filter(isComplete);
+  const correctAnswers = completedQuestions.map(question => question.correctAnswer).join("");
   const requiredPool = completedQuestions.length * rewardPerCorrect * maxParticipants;
 
   const previewPayload = useMemo(
     () => buildQuestionSetHashInput(completedQuestions, timerSeconds),
     [completedQuestions, timerSeconds],
   );
+  const moduleId = useMemo(
+    () => keccak256(toBytes(moduleKey.trim() || "goodmarket-module")),
+    [moduleKey],
+  );
   const questionSetHash = useMemo(
     () => (completedQuestions.length > 0 ? keccak256(toBytes(previewPayload)) : "Waiting for completed questions"),
     [completedQuestions.length, previewPayload],
   );
+  const correctAnswerCommitment = useMemo(
+    () => (correctAnswers && answerSecret.trim() ? keccak256(toBytes(`${correctAnswers}:${answerSecret.trim()}`)) : "Waiting for answers and secret"),
+    [answerSecret, correctAnswers],
+  );
+  const startDelaySeconds = Math.max(0, startDelayHours) * 60 * 60;
+  const examDurationSeconds = Math.max(1, durationDays) * 24 * 60 * 60;
+  const correctionDelaySeconds = Math.max(1, correctionDelayDays) * 24 * 60 * 60;
 
   function updateQuestion(index: number, patch: Partial<DraftQuestion>) {
     setQuestions(current => {
@@ -59,6 +76,10 @@ export function QuestionBuilder() {
           <legend>Exam settings</legend>
           <div className="grid compact-grid">
             <label>
+              Module key / slug
+              <input placeholder="goodmarket-gs-basics" value={moduleKey} onChange={event => setModuleKey(event.target.value)} />
+            </label>
+            <label>
               Reward per correct answer (G$)
               <input min={1} type="number" value={rewardPerCorrect} onChange={event => setRewardPerCorrect(Number(event.target.value))} />
             </label>
@@ -69,6 +90,22 @@ export function QuestionBuilder() {
             <label>
               Timer per question (seconds)
               <input min={5} type="number" value={timerSeconds} onChange={event => setTimerSeconds(Number(event.target.value))} />
+            </label>
+            <label>
+              Start delay (hours)
+              <input min={0} type="number" value={startDelayHours} onChange={event => setStartDelayHours(Number(event.target.value))} />
+            </label>
+            <label>
+              Exam duration (days)
+              <input min={1} type="number" value={durationDays} onChange={event => setDurationDays(Number(event.target.value))} />
+            </label>
+            <label>
+              Correction delay (days)
+              <input min={1} type="number" value={correctionDelayDays} onChange={event => setCorrectionDelayDays(Number(event.target.value))} />
+            </label>
+            <label>
+              Answer reveal secret
+              <input placeholder="Keep this private until reveal" value={answerSecret} onChange={event => setAnswerSecret(event.target.value)} />
             </label>
           </div>
         </fieldset>
@@ -103,15 +140,26 @@ export function QuestionBuilder() {
         <span className="badge">Ready to publish</span>
         <h2>Exam summary</h2>
         <div className="summary-list">
-          <p><strong>{completedQuestions.length}</strong><span>Completed questions</span></p>
-          <p><strong>{requiredPool.toLocaleString()} G$</strong><span>Required reward pool</span></p>
-          <p><strong>{timerSeconds}s</strong><span>Timer per question</span></p>
+          <p><strong>{completedQuestions.length}</strong><span>questionCount</span></p>
+          <p><strong>{requiredPool.toLocaleString()} G$</strong><span>GoodLearnRewardPool requiredAmount</span></p>
+          <p><strong>{timerSeconds}s</strong><span>timerSeconds</span></p>
+          <p><strong>{startDelaySeconds.toLocaleString()}s</strong><span>startTime offset</span></p>
+          <p><strong>{examDurationSeconds.toLocaleString()}s</strong><span>endTime window</span></p>
+          <p><strong>{correctionDelaySeconds.toLocaleString()}s</strong><span>correctionDelaySeconds</span></p>
         </div>
         <div className="hash-preview">
-          <span>Question set hash</span>
+          <span>moduleId</span>
+          <code>{moduleId}</code>
+        </div>
+        <div className="hash-preview">
+          <span>questionSetHash</span>
           <code>{questionSetHash}</code>
         </div>
-        <p className="muted">The raw canonical payload is kept behind the scenes, so creators see a clean summary instead of JSON.</p>
+        <div className="hash-preview">
+          <span>correctAnswerCommitment</span>
+          <code>{correctAnswerCommitment}</code>
+        </div>
+        <p className="muted">These values mirror the createExam contract inputs. Fund the matching pool with questionCount × rewardPerCorrect × maxParticipants after publishing.</p>
         <button className="button" disabled={completedQuestions.length === 0} type="button">
           Submit and publish
         </button>

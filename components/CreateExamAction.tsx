@@ -9,14 +9,14 @@ export function CreateExamAction() {
   if (!wallet) {
     return (
       <p className="wallet-required-note" role="status">
-        Connect wallet to launch the Learn & Earn app.
+        Connect wallet to launch the Learn & Earn creator.
       </p>
     );
   }
 
   return (
-    <Link className="button" href="/create">
-      Create reward quest
+    <Link className="button" href="/learn-and-earn">
+      Open Learn & Earn
     </Link>
   );
 }
