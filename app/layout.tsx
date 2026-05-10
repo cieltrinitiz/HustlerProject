@@ -19,6 +19,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               <span className="brand-mark">G$</span>
               <span>GoodMarket</span>
             </a>
+            <nav className="site-nav" aria-label="Primary navigation">
+              <a href="/exams">Exams</a>
+              <a href="/learn-and-earn">Create</a>
+            </nav>
             <ConnectWalletModal />
           </header>
           {children}

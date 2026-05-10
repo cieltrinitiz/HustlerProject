@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { encodeFunctionData, keccak256, toBytes, toHex, type Hex } from "viem";
+import { decodeEventLog, encodeFunctionData, keccak256, toBytes, toHex, type Hex } from "viem";
 import { getInjectedProvider, parseFirstAccount, useWalletConnection, type EthereumProvider } from "@/components/WalletConnectionProvider";
 import { buildQuestionSetHashInput, type DraftQuestion } from "@/lib/questions";
 
@@ -39,6 +40,23 @@ const goodLearnExamAbi = [
     outputs: [{ type: "uint256" }],
   },
   {
+    type: "event",
+    name: "ExamCreated",
+    inputs: [
+      { name: "examId", type: "uint256", indexed: true },
+      { name: "creator", type: "address", indexed: true },
+      { name: "moduleId", type: "bytes32", indexed: true },
+      { name: "questionSetHash", type: "bytes32", indexed: false },
+      { name: "questionCount", type: "uint256", indexed: false },
+      { name: "rewardPerCorrect", type: "uint256", indexed: false },
+      { name: "maxParticipants", type: "uint256", indexed: false },
+      { name: "timerSeconds", type: "uint256", indexed: false },
+      { name: "startTime", type: "uint256", indexed: false },
+      { name: "endTime", type: "uint256", indexed: false },
+      { name: "correctionUnlockTime", type: "uint256", indexed: false },
+    ],
+  },
+  {
     type: "function",
     name: "createExam",
     stateMutability: "payable",
@@ -70,6 +88,7 @@ export function QuestionBuilder() {
   const [correctionDelayDays, setCorrectionDelayDays] = useState(1);
   const [answerSecret, setAnswerSecret] = useState("goodmarket-secret");
   const [publishStatus, setPublishStatus] = useState("");
+  const [publishedExam, setPublishedExam] = useState<{ transactionHash: string; onChainExamId?: string; examRecordId?: string } | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
 
   const completedQuestions = questions.filter(isComplete);
@@ -105,6 +124,11 @@ export function QuestionBuilder() {
   );
 
   async function handlePublish() {
+    if (publishedExam) {
+      setPublishStatus("This exam is already published in this session. Open the exams page instead of submitting another wallet transaction.");
+      return;
+    }
+
     if (!wallet) {
       setPublishStatus("Connect your wallet first so the contract transaction can be signed.");
       return;
@@ -165,23 +189,40 @@ export function QuestionBuilder() {
           value: toHex(publishFee),
         }],
       });
+      const transactionHashText = String(transactionHash);
+      setPublishedExam({ transactionHash: transactionHashText });
+      setPublishStatus(`Exam publish transaction submitted. Waiting for the on-chain ExamCreated event: ${transactionHashText}`);
+      const onChainExamId = await waitForCreatedExamId(provider, transactionHashText as Hex, GOODLEARN_EXAM_ADDRESS);
+      setPublishedExam({ transactionHash: transactionHashText, onChainExamId });
+      setPublishStatus(onChainExamId ? `Exam #${onChainExamId} is confirmed on-chain. Saving the off-chain question content now.` : `Exam is submitted on-chain. Saving the off-chain question content now.`);
 
-      void fetch("/api/publish-exam", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          moduleId,
-          creatorWallet: signerAddress,
-          contractExamId: typeof transactionHash === "string" ? transactionHash : undefined,
-          questionSetHash,
-          questionCount: completedQuestions.length,
-          rewardPerCorrect: String(rewardPerCorrect),
-          maxParticipants,
-          timerSeconds,
-        }),
-      }).catch(() => undefined);
+      try {
+        const publishResponse = await fetch("/api/publish-exam", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            moduleId,
+            creatorWallet: signerAddress,
+            contractExamId: onChainExamId,
+            questionSetHash,
+            questionCount: completedQuestions.length,
+            rewardPerCorrect: String(rewardPerCorrect),
+            maxParticipants,
+            timerSeconds,
+            questions: completedQuestions,
+          }),
+        });
 
-      setPublishStatus(`Publish transaction submitted: ${String(transactionHash)}`);
+        if (publishResponse.ok) {
+          const result = await publishResponse.json() as { exam?: { id?: string } };
+          setPublishedExam({ transactionHash: transactionHashText, onChainExamId, examRecordId: result.exam?.id });
+          setPublishStatus(onChainExamId ? `Exam #${onChainExamId} published on-chain and saved to the exam list.` : `Exam published on-chain and saved to the exam list. Transaction: ${transactionHashText}`);
+        } else {
+          setPublishStatus(`Exam published on-chain, but saving it to the exam list failed. Transaction: ${transactionHashText}`);
+        }
+      } catch {
+        setPublishStatus(`Exam published on-chain, but saving it to the exam list failed. Transaction: ${transactionHashText}`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Wallet rejected or failed to send the publish transaction.";
       setPublishStatus(message);
@@ -360,12 +401,61 @@ export function QuestionBuilder() {
         <p className="muted">Set the target max reward per participant and the app auto-divides it across completed questions for the contract rewardPerCorrect input. Funding locks the final settings on-chain.</p>
         <p className="muted">Publishing opens MetaMask for the on-chain createExam call. Keep enough CELO for the contract publish fee plus the separate Celo gas/network fee shown by your wallet; this extra wallet fee can vary and may be roughly $0.10 worth of CELO depending on current network conditions.</p>
         {publishStatus ? <p className="wallet-message publish-status" role="status">{publishStatus}</p> : null}
-        <button className="button publish-button" disabled={completedQuestions.length === 0 || isPublishing} onClick={handlePublish} type="button">
-          {isPublishing ? "Publishing..." : "Submit and publish"}
-        </button>
+        {publishedExam ? (
+          <div className="published-exam-card" role="status">
+            <span className="badge">Published</span>
+            <h3>Exam is already on-chain</h3>
+            <p>The publish button is hidden now so you do not accidentally sign again and pay another gas fee. The contract stores the exam settings and question hash; Supabase stores the readable question text for learners.</p>
+            {publishedExam.onChainExamId ? <code>On-chain exam #{publishedExam.onChainExamId}</code> : null}
+            <code>{publishedExam.transactionHash}</code>
+            <div className="published-exam-actions">
+              <Link className="button" href="/exams">Open exam list</Link>
+              {publishedExam.examRecordId ? <span>Saved record: {publishedExam.examRecordId}</span> : null}
+            </div>
+          </div>
+        ) : (
+          <button className="button publish-button" disabled={completedQuestions.length === 0 || isPublishing} onClick={handlePublish} type="button">
+            {isPublishing ? "Publishing..." : "Submit and publish"}
+          </button>
+        )}
       </aside>
     </div>
   );
+}
+
+type TransactionReceiptLog = {
+  address?: string;
+  data?: Hex;
+  topics?: Hex[];
+};
+
+type TransactionReceipt = {
+  logs?: TransactionReceiptLog[];
+};
+
+async function waitForCreatedExamId(provider: EthereumProvider, transactionHash: Hex, contractAddress: Hex) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const receipt = await provider.request?.({ method: "eth_getTransactionReceipt", params: [transactionHash] }) as TransactionReceipt | null | undefined;
+
+    for (const log of receipt?.logs ?? []) {
+      if (log.address?.toLowerCase() !== contractAddress.toLowerCase() || !log.data || !log.topics) {
+        continue;
+      }
+
+      try {
+        const event = decodeEventLog({ abi: goodLearnExamAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
+        if (event.eventName === "ExamCreated") {
+          return event.args.examId.toString();
+        }
+      } catch {
+        // Ignore non-GoodLearnExam logs in the receipt.
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 2_000));
+  }
+
+  return undefined;
 }
 
 function formatCeloAmount(value: bigint) {
