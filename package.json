@@ -17,7 +17,8 @@
     "react-dom": "^19.0.0",
     "viem": "^2.23.0",
     "wagmi": "^2.14.0",
-    "@goodsdks/citizen-sdk": "^1.0.0"
+    "@goodsdks/citizen-sdk": "^1.0.0",
+    "@walletconnect/ethereum-provider": "^2.21.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
