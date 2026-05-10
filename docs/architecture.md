@@ -5,7 +5,7 @@
 | Layer | Data |
 | --- | --- |
 | Supabase | profiles, identity status mirrors, modules, drafts, questions, UI metadata, submission mirrors |
-| GoodLearnExam.sol | exam schedule, question set hash, answer commitments, correction delay, user scores |
+| GoodLearnExam.sol | exam schedule, editable pre-funding settings, question set hash, answer commitments, correction delay, user scores |
 | GoodLearnRewardPool.sol | G$ deposits, claim accounting, unused reward refunds |
 
 ## Creator flow
@@ -16,8 +16,9 @@
 4. Set max participants, max reward per participant, timer, start/end time, and correction delay. The UI auto-divides the per-participant max across completed questions for the contract `rewardPerCorrect` value.
 5. Submit/Publish.
 6. Hash the question set and answer commitment.
-7. Pay the publish fee and fund the G$ pool.
-8. Store exam configuration and commitments on-chain.
+7. Pay the publish fee and store exam configuration and commitments on-chain.
+8. Edit mutable exam settings if needed before learner submissions and before the G$ pool is funded.
+9. Fund the G$ pool; funding locks the on-chain settings used to calculate the required reward reserve.
 
 ## Learner flow
 
@@ -51,3 +52,7 @@ The publish fee is a one-time CELO platform fee. Network gas and G$ reward fundi
 For Remix, deploy `GoodLearnExam.sol` first and then `contracts/remix/GoodLearnRewardPoolRemix.sol`. The Remix contract keeps the ERC-20 and exam interfaces inline to avoid import-resolution errors for `contracts/interfaces/IERC20.sol` and `contracts/interfaces/IGoodLearnExam.sol`.
 
 Use the Celo G$ token address `0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A` for production deployments.
+
+## Editable exam settings
+
+`GoodLearnExam.updateExamSettings` lets the exam creator update `rewardPerCorrect`, `maxParticipants`, `timerSeconds`, `startTime`, `endTime`, and `correctionDelaySeconds` after publishing. Edits are intentionally blocked once a learner has submitted, once the exam has been corrected, or once `GoodLearnRewardPool.fundExam` locks the settings via `lockExamSettings`, so reward-pool funding and learner payouts stay consistent.

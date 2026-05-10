@@ -17,6 +17,7 @@ contract GoodLearnExam {
         bytes32 correctAnswerCommitment;
         string revealedAnswers;
         bool corrected;
+        bool settingsLocked;
     }
 
     struct Submission {
@@ -28,6 +29,7 @@ contract GoodLearnExam {
 
     address public owner;
     address payable public treasury;
+    address public rewardPool;
     uint256 public publishFee;
     uint256 public nextExamId = 1;
 
@@ -48,10 +50,21 @@ contract GoodLearnExam {
         uint256 correctionUnlockTime
     );
     event AnswersSubmitted(uint256 indexed examId, address indexed learner, bytes32 answerCommitment);
+    event ExamSettingsUpdated(
+        uint256 indexed examId,
+        uint256 rewardPerCorrect,
+        uint256 maxParticipants,
+        uint256 timerSeconds,
+        uint256 startTime,
+        uint256 endTime,
+        uint256 correctionUnlockTime
+    );
+    event ExamSettingsLocked(uint256 indexed examId, address indexed rewardPool);
     event CorrectAnswersRevealed(uint256 indexed examId, string answers);
     event UserAnswersRevealed(uint256 indexed examId, address indexed learner, uint256 score);
     event PublishFeeUpdated(uint256 publishFee);
     event TreasuryUpdated(address treasury);
+    event RewardPoolUpdated(address rewardPool);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
@@ -60,6 +73,11 @@ contract GoodLearnExam {
 
     modifier onlyExamCreator(uint256 examId) {
         require(msg.sender == exams[examId].creator, "Not exam creator");
+        _;
+    }
+
+    modifier onlyRewardPool() {
+        require(msg.sender == rewardPool, "Not reward pool");
         _;
     }
 
@@ -110,7 +128,8 @@ contract GoodLearnExam {
             correctionUnlockTime: correctionUnlockTime,
             correctAnswerCommitment: correctAnswerCommitment,
             revealedAnswers: "",
-            corrected: false
+            corrected: false,
+            settingsLocked: false
         });
 
         if (publishFee > 0) {
@@ -137,6 +156,57 @@ contract GoodLearnExam {
             endTime,
             correctionUnlockTime
         );
+    }
+
+
+    function updateExamSettings(
+        uint256 examId,
+        uint256 rewardPerCorrect,
+        uint256 maxParticipants,
+        uint256 timerSeconds,
+        uint256 startTime,
+        uint256 endTime,
+        uint256 correctionDelaySeconds
+    ) external onlyExamCreator(examId) {
+        Exam storage exam = exams[examId];
+        require(!exam.settingsLocked, "Settings locked");
+        require(!exam.corrected, "Already corrected");
+        require(exam.participantCount == 0, "Submissions exist");
+        require(rewardPerCorrect > 0, "No reward");
+        require(maxParticipants > 0, "No participants");
+        require(timerSeconds >= 5, "Timer too short");
+        require(startTime >= block.timestamp, "Invalid start");
+        require(endTime > startTime, "Invalid end");
+        require(correctionDelaySeconds >= 1 days, "Delay too short");
+
+        uint256 correctionUnlockTime = endTime + correctionDelaySeconds;
+
+        exam.rewardPerCorrect = rewardPerCorrect;
+        exam.maxParticipants = maxParticipants;
+        exam.timerSeconds = timerSeconds;
+        exam.startTime = startTime;
+        exam.endTime = endTime;
+        exam.correctionUnlockTime = correctionUnlockTime;
+
+        emit ExamSettingsUpdated(
+            examId,
+            rewardPerCorrect,
+            maxParticipants,
+            timerSeconds,
+            startTime,
+            endTime,
+            correctionUnlockTime
+        );
+    }
+
+    function lockExamSettings(uint256 examId) external onlyRewardPool {
+        Exam storage exam = exams[examId];
+        require(exam.creator != address(0), "Exam not found");
+        require(!exam.settingsLocked, "Settings locked");
+
+        exam.settingsLocked = true;
+
+        emit ExamSettingsLocked(examId, msg.sender);
     }
 
     function submitAnswers(uint256 examId, bytes32 answerCommitment) external {
@@ -242,6 +312,12 @@ contract GoodLearnExam {
         require(newTreasury != address(0), "Treasury required");
         treasury = newTreasury;
         emit TreasuryUpdated(newTreasury);
+    }
+
+    function updateRewardPool(address newRewardPool) external onlyOwner {
+        require(newRewardPool != address(0), "Reward pool required");
+        rewardPool = newRewardPool;
+        emit RewardPoolUpdated(newRewardPool);
     }
 
     function withdrawPublishFees() external onlyOwner {

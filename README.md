@@ -19,8 +19,9 @@ The app uses a hybrid architecture:
 4. Click Submit/Publish.
 5. Generate a question set hash and correct-answer commitment.
 6. Publish the exam on-chain and pay the one-time CELO publish fee.
-7. Fund the required G$ reward pool.
-8. Reveal correct answers after the correction delay.
+7. If needed, edit contract-backed exam settings (`rewardPerCorrect`, `maxParticipants`, timer, start/end window, or correction delay) before learners submit and before the reward pool is funded.
+8. Fund the required G$ reward pool; funding locks those settings so the reserved G$ amount stays aligned with payouts.
+9. Reveal correct answers after the correction delay.
 
 ### Learner
 
@@ -82,8 +83,8 @@ Local-only identity overrides can be kept in `lib/gooddollar/identity.local.ts`,
 
 ## Smart contracts
 
-- `GoodLearnExam.sol` handles exam publication, question commitments, timed submissions, correction reveal, and scoring.
-- `GoodLearnRewardPool.sol` handles G$ funding, optional-return-safe token transfers, claims, double-claim prevention, and unused reward refunds.
+- `GoodLearnExam.sol` handles exam publication, editable pre-funding settings, question commitments, timed submissions, correction reveal, and scoring.
+- `GoodLearnRewardPool.sol` handles G$ funding, settings locking, optional-return-safe token transfers, claims, double-claim prevention, and unused reward refunds.
 - `contracts/remix/GoodLearnRewardPoolRemix.sol` includes inline interfaces for Remix deployments without import errors.
 
 ## Remix deployment

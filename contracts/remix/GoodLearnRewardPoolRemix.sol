@@ -10,6 +10,8 @@ interface IERC20Remix {
 
 /// @notice Inline GoodLearnExam interface for Remix deployments where relative imports can fail.
 interface IGoodLearnExamRemix {
+    function lockExamSettings(uint256 examId) external;
+
     function getExamRewardConfig(uint256 examId)
         external
         view
@@ -91,6 +93,8 @@ contract GoodLearnRewardPoolRemix {
         corrected;
         require(creator == msg.sender, "Not exam creator");
         require(!pools[examId].funded, "Already funded");
+
+        examContract.lockExamSettings(examId);
 
         uint256 requiredAmount = questionCount * rewardPerCorrect * maxParticipants;
         require(requiredAmount > 0, "Invalid pool");
