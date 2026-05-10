@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { keccak256, toBytes } from "viem";
+import { encodeFunctionData, keccak256, toBytes, toHex, type Hex } from "viem";
+import { getInjectedProvider, parseFirstAccount, useWalletConnection, type EthereumProvider } from "@/components/WalletConnectionProvider";
 import { buildQuestionSetHashInput, type DraftQuestion } from "@/lib/questions";
 
 const emptyQuestion = (id: number): DraftQuestion => ({
@@ -15,6 +16,8 @@ const emptyQuestion = (id: number): DraftQuestion => ({
 });
 
 const DEFAULT_MAX_REWARD_PER_LEARNER = 1000;
+const CELO_CHAIN_ID = "0xa4ec";
+const GOODLEARN_EXAM_ADDRESS = process.env.NEXT_PUBLIC_GOODLEARN_EXAM_ADDRESS as Hex | undefined;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 
@@ -27,7 +30,36 @@ const isComplete = (question: DraftQuestion) =>
 
 const formatUnit = (value: number, unit: string) => `${value.toLocaleString()} ${unit}${value === 1 ? "" : "s"}`;
 
+const goodLearnExamAbi = [
+  {
+    type: "function",
+    name: "publishFee",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "createExam",
+    stateMutability: "payable",
+    inputs: [
+      { name: "moduleId", type: "bytes32" },
+      { name: "questionSetHash", type: "bytes32" },
+      { name: "questionCount", type: "uint256" },
+      { name: "rewardPerCorrect", type: "uint256" },
+      { name: "maxParticipants", type: "uint256" },
+      { name: "timerSeconds", type: "uint256" },
+      { name: "startTime", type: "uint256" },
+      { name: "endTime", type: "uint256" },
+      { name: "correctionDelaySeconds", type: "uint256" },
+      { name: "correctAnswerCommitment", type: "bytes32" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
 export function QuestionBuilder() {
+  const { wallet } = useWalletConnection();
   const [questions, setQuestions] = useState<DraftQuestion[]>([emptyQuestion(1)]);
   const [moduleKey, setModuleKey] = useState("goodmarket-gs-basics");
   const [maxRewardPerLearner, setMaxRewardPerLearner] = useState(DEFAULT_MAX_REWARD_PER_LEARNER);
@@ -37,6 +69,8 @@ export function QuestionBuilder() {
   const [durationDays, setDurationDays] = useState(7);
   const [correctionDelayDays, setCorrectionDelayDays] = useState(1);
   const [answerSecret, setAnswerSecret] = useState("goodmarket-secret");
+  const [publishStatus, setPublishStatus] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
 
   const completedQuestions = questions.filter(isComplete);
   const correctAnswers = completedQuestions.map(question => question.correctAnswer).join("");
@@ -72,6 +106,91 @@ export function QuestionBuilder() {
     () => (correctAnswers && answerSecret.trim() ? keccak256(toBytes(`${correctAnswers}:${answerSecret.trim()}`)) : "Waiting for answers and secret"),
     [answerSecret, correctAnswers],
   );
+
+  async function handlePublish() {
+    if (!wallet) {
+      setPublishStatus("Connect your wallet first so the contract transaction can be signed.");
+      return;
+    }
+
+    if (!GOODLEARN_EXAM_ADDRESS) {
+      setPublishStatus("NEXT_PUBLIC_GOODLEARN_EXAM_ADDRESS is missing. Add the deployed GoodLearnExam address before publishing.");
+      return;
+    }
+
+    if (completedQuestions.length === 0 || rewardPerCorrect <= 0 || !answerSecret.trim()) {
+      setPublishStatus("Complete at least one question, keep rewards above zero, and keep the answer secret before publishing.");
+      return;
+    }
+
+    const provider = getInjectedProvider();
+    if (!provider?.request) {
+      setPublishStatus("No injected wallet provider was found. Open this page in GoodWallet, MetaMask, MiniPay, Trust Wallet, or another injected wallet browser.");
+      return;
+    }
+
+    setIsPublishing(true);
+    setPublishStatus("Opening wallet. Please approve the GoodLearnExam createExam transaction.");
+
+    try {
+      await switchToCelo(provider);
+      const accounts = await provider.request({ method: "eth_requestAccounts" });
+      const signerAddress = parseFirstAccount(accounts) ?? wallet.address;
+
+      const now = Math.floor(Date.now() / 1000);
+      const startTime = BigInt(now + startDelaySeconds);
+      const endTime = BigInt(now + startDelaySeconds + examDurationSeconds);
+      const publishFee = await readPublishFee(provider, GOODLEARN_EXAM_ADDRESS);
+      const data = encodeFunctionData({
+        abi: goodLearnExamAbi,
+        functionName: "createExam",
+        args: [
+          moduleId,
+          questionSetHash as Hex,
+          BigInt(completedQuestions.length),
+          BigInt(rewardPerCorrect),
+          BigInt(maxParticipants),
+          BigInt(timerSeconds),
+          startTime,
+          endTime,
+          BigInt(correctionDelaySeconds),
+          correctAnswerCommitment as Hex,
+        ],
+      });
+
+      const transactionHash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: signerAddress,
+          to: GOODLEARN_EXAM_ADDRESS,
+          data,
+          value: toHex(publishFee),
+        }],
+      });
+
+      void fetch("/api/publish-exam", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          moduleId,
+          creatorWallet: signerAddress,
+          contractExamId: typeof transactionHash === "string" ? transactionHash : undefined,
+          questionSetHash,
+          questionCount: completedQuestions.length,
+          rewardPerCorrect: String(rewardPerCorrect),
+          maxParticipants,
+          timerSeconds,
+        }),
+      }).catch(() => undefined);
+
+      setPublishStatus(`Publish transaction submitted: ${String(transactionHash)}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Wallet rejected or failed to send the publish transaction.";
+      setPublishStatus(message);
+    } finally {
+      setIsPublishing(false);
+    }
+  }
 
   function updateQuestion(index: number, patch: Partial<DraftQuestion>) {
     setQuestions(current => {
@@ -232,10 +351,38 @@ export function QuestionBuilder() {
           <code>{correctAnswerCommitment}</code>
         </div>
         <p className="muted">Set the target max reward per participant and the app auto-divides it across completed questions for the contract rewardPerCorrect input. Funding locks the final settings on-chain.</p>
-        <button className="button publish-button" disabled={completedQuestions.length === 0} type="button">
-          Submit and publish
+        {publishStatus ? <p className="wallet-message publish-status" role="status">{publishStatus}</p> : null}
+        <button className="button publish-button" disabled={completedQuestions.length === 0 || isPublishing} onClick={handlePublish} type="button">
+          {isPublishing ? "Publishing..." : "Submit and publish"}
         </button>
       </aside>
     </div>
   );
+}
+
+async function readPublishFee(provider: EthereumProvider, contractAddress: Hex) {
+  const data = encodeFunctionData({ abi: goodLearnExamAbi, functionName: "publishFee" });
+  const result = await provider.request?.({
+    method: "eth_call",
+    params: [{ to: contractAddress, data }, "latest"],
+  });
+
+  return typeof result === "string" && result !== "0x" ? BigInt(result) : 0n;
+}
+
+async function switchToCelo(provider: EthereumProvider) {
+  try {
+    await provider.request?.({ method: "wallet_switchEthereumChain", params: [{ chainId: CELO_CHAIN_ID }] });
+  } catch {
+    await provider.request?.({
+      method: "wallet_addEthereumChain",
+      params: [{
+        chainId: CELO_CHAIN_ID,
+        chainName: "Celo",
+        nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
+        rpcUrls: ["https://forno.celo.org"],
+        blockExplorerUrls: ["https://celoscan.io"],
+      }],
+    });
+  }
 }
