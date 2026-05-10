@@ -34,3 +34,6 @@ broadcast/
 # Local-only GoodDollar identity overrides (never commit real local identity config)
 lib/gooddollar/identity.local.ts
 lib/gooddollar/*.local.ts
+
+# TypeScript
+tsconfig.tsbuildinfo
