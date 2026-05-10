@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { decodeEventLog, encodeFunctionData, keccak256, toBytes, toHex, type Hex } from "viem";
+import { keccak256, toBytes, toHex, type Hex } from "viem";
 import { getInjectedProvider, parseFirstAccount, useWalletConnection, type EthereumProvider } from "@/components/WalletConnectionProvider";
 import { buildQuestionSetHashInput, type DraftQuestion } from "@/lib/questions";
+import { CELO_CHAIN_ID, GOODLEARN_EXAM_ADDRESS, decodeExamCreatedLog, getCreateExamData, getPublishFeeData } from "@/lib/goodlearnExam";
 
 const emptyQuestion = (id: number): DraftQuestion => ({
   id,
@@ -17,8 +18,9 @@ const emptyQuestion = (id: number): DraftQuestion => ({
 });
 
 const DEFAULT_MAX_REWARD_PER_LEARNER = 1000;
-const CELO_CHAIN_ID = "0xa4ec";
-const GOODLEARN_EXAM_ADDRESS = process.env.NEXT_PUBLIC_GOODLEARN_EXAM_ADDRESS as Hex | undefined;
+const MIN_CONTRACT_TIMER_SECONDS = 5;
+const GAS_LIMIT_BUFFER_PERCENT = 20n;
+const MIN_START_DELAY_SECONDS = 60;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 
@@ -30,52 +32,6 @@ const isComplete = (question: DraftQuestion) =>
   question.choiceD.trim() !== "";
 
 const formatUnit = (value: number, unit: string) => `${value.toLocaleString()} ${unit}${value === 1 ? "" : "s"}`;
-
-const goodLearnExamAbi = [
-  {
-    type: "function",
-    name: "publishFee",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "event",
-    name: "ExamCreated",
-    inputs: [
-      { name: "examId", type: "uint256", indexed: true },
-      { name: "creator", type: "address", indexed: true },
-      { name: "moduleId", type: "bytes32", indexed: true },
-      { name: "questionSetHash", type: "bytes32", indexed: false },
-      { name: "questionCount", type: "uint256", indexed: false },
-      { name: "rewardPerCorrect", type: "uint256", indexed: false },
-      { name: "maxParticipants", type: "uint256", indexed: false },
-      { name: "timerSeconds", type: "uint256", indexed: false },
-      { name: "startTime", type: "uint256", indexed: false },
-      { name: "endTime", type: "uint256", indexed: false },
-      { name: "correctionUnlockTime", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "function",
-    name: "createExam",
-    stateMutability: "payable",
-    inputs: [
-      { name: "moduleId", type: "bytes32" },
-      { name: "questionSetHash", type: "bytes32" },
-      { name: "questionCount", type: "uint256" },
-      { name: "rewardPerCorrect", type: "uint256" },
-      { name: "maxParticipants", type: "uint256" },
-      { name: "timerSeconds", type: "uint256" },
-      { name: "startTime", type: "uint256" },
-      { name: "endTime", type: "uint256" },
-      { name: "correctionDelaySeconds", type: "uint256" },
-      { name: "correctAnswerCommitment", type: "bytes32" },
-    ],
-    outputs: [{ type: "uint256" }],
-  },
-] as const;
-
 export function QuestionBuilder() {
   const { wallet } = useWalletConnection();
   const [questions, setQuestions] = useState<DraftQuestion[]>([emptyQuestion(1)]);
@@ -97,12 +53,12 @@ export function QuestionBuilder() {
   const perLearnerMaxReward = completedQuestions.length * rewardPerCorrect;
   const unusedRewardRemainder = maxRewardPerLearner - perLearnerMaxReward;
   const requiredPool = perLearnerMaxReward * maxParticipants;
-  const safeTimerSeconds = Math.max(1, timerSecondsInput || 1);
+  const safeTimerSeconds = Math.max(MIN_CONTRACT_TIMER_SECONDS, timerSecondsInput || MIN_CONTRACT_TIMER_SECONDS);
   const safeStartDelayHours = Math.max(0, startDelayHours || 0);
   const safeDurationDays = Math.max(1, durationDays || 1);
   const safeCorrectionDelayDays = Math.max(1, correctionDelayDays || 1);
   const timerSeconds = safeTimerSeconds;
-  const startDelaySeconds = safeStartDelayHours * SECONDS_PER_HOUR;
+  const startDelaySeconds = Math.max(MIN_START_DELAY_SECONDS, safeStartDelayHours * SECONDS_PER_HOUR);
   const examDurationSeconds = safeDurationDays * SECONDS_PER_DAY;
   const correctionDelaySeconds = safeCorrectionDelayDays * SECONDS_PER_DAY;
 
@@ -163,31 +119,32 @@ export function QuestionBuilder() {
       const endTime = BigInt(now + startDelaySeconds + examDurationSeconds);
       const publishFee = await readPublishFee(provider, GOODLEARN_EXAM_ADDRESS);
       setPublishStatus(`Confirm in MetaMask: ${formatCeloAmount(publishFee)} publish fee plus a separate Celo gas/network fee. The gas fee can vary, so your wallet may require more CELO than the publish fee alone.`);
-      const data = encodeFunctionData({
-        abi: goodLearnExamAbi,
-        functionName: "createExam",
-        args: [
-          moduleId,
-          questionSetHash as Hex,
-          BigInt(completedQuestions.length),
-          BigInt(rewardPerCorrect),
-          BigInt(maxParticipants),
-          BigInt(timerSeconds),
-          startTime,
-          endTime,
-          BigInt(correctionDelaySeconds),
-          correctAnswerCommitment as Hex,
-        ],
-      });
-
+      const data = getCreateExamData([
+        moduleId,
+        questionSetHash as Hex,
+        BigInt(completedQuestions.length),
+        BigInt(rewardPerCorrect),
+        BigInt(maxParticipants),
+        BigInt(timerSeconds),
+        startTime,
+        endTime,
+        BigInt(correctionDelaySeconds),
+        correctAnswerCommitment as Hex,
+      ]);
+      const transactionRequest = {
+        from: signerAddress,
+        to: GOODLEARN_EXAM_ADDRESS,
+        data,
+        value: toHex(publishFee),
+      };
+      setPublishStatus(`Checking Celo gas before opening MetaMask: ${formatCeloAmount(publishFee)} publish fee plus network gas.`);
+      const gasLimit = await estimatePublishGas(provider, transactionRequest);
+      const gasPrice = await readGasPrice(provider);
+      await assertEnoughCeloForPublish(provider, signerAddress, publishFee, gasLimit, gasPrice);
+      setPublishStatus(`Confirm in MetaMask: ${formatCeloAmount(publishFee)} publish fee plus about ${formatCeloAmount(gasLimit * gasPrice)} reserved for Celo network gas.`);
       const transactionHash = await provider.request({
         method: "eth_sendTransaction",
-        params: [{
-          from: signerAddress,
-          to: GOODLEARN_EXAM_ADDRESS,
-          data,
-          value: toHex(publishFee),
-        }],
+        params: [{ ...transactionRequest, gas: toHex(gasLimit) }],
       });
       const transactionHashText = String(transactionHash);
       setPublishedExam({ transactionHash: transactionHashText });
@@ -275,7 +232,7 @@ export function QuestionBuilder() {
             <label>
               <span>Timer per question</span>
               <div className="input-with-suffix">
-                <input min={1} type="number" value={timerSecondsInput} onChange={event => setTimerSecondsInput(Number(event.target.value))} />
+                <input min={MIN_CONTRACT_TIMER_SECONDS} type="number" value={timerSecondsInput} onChange={event => setTimerSecondsInput(Number(event.target.value))} />
                 <small>sec</small>
               </div>
             </label>
@@ -443,7 +400,7 @@ async function waitForCreatedExamId(provider: EthereumProvider, transactionHash:
       }
 
       try {
-        const event = decodeEventLog({ abi: goodLearnExamAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
+        const event = decodeExamCreatedLog(log.data, log.topics as [Hex, ...Hex[]]);
         if (event.eventName === "ExamCreated") {
           return event.args.examId.toString();
         }
@@ -472,8 +429,39 @@ function formatCeloAmount(value: bigint) {
   return `${whole.toString()}.${trimmedFraction} CELO`;
 }
 
+async function estimatePublishGas(provider: EthereumProvider, transactionRequest: { from: string; to: Hex; data: Hex; value: Hex }) {
+  try {
+    const estimatedGas = await provider.request?.({ method: "eth_estimateGas", params: [transactionRequest] });
+    const gas = typeof estimatedGas === "string" ? BigInt(estimatedGas) : 0n;
+
+    if (gas <= 0n) {
+      throw new Error("Wallet could not estimate the Celo network fee for this publish transaction.");
+    }
+
+    return gas + ((gas * GAS_LIMIT_BUFFER_PERCENT) / 100n);
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Unknown gas estimation error";
+    throw new Error(`Celo network fee is unavailable because the createExam transaction cannot be estimated. Check that the exam contract address is correct, your timer is at least ${MIN_CONTRACT_TIMER_SECONDS} seconds, start time is not in the past, and your wallet has enough CELO. Details: ${details}`);
+  }
+}
+
+async function readGasPrice(provider: EthereumProvider) {
+  const gasPrice = await provider.request?.({ method: "eth_gasPrice" });
+  return typeof gasPrice === "string" ? BigInt(gasPrice) : 0n;
+}
+
+async function assertEnoughCeloForPublish(provider: EthereumProvider, signerAddress: string, publishFee: bigint, gasLimit: bigint, gasPrice: bigint) {
+  const balanceResult = await provider.request?.({ method: "eth_getBalance", params: [signerAddress, "latest"] });
+  const balance = typeof balanceResult === "string" ? BigInt(balanceResult) : 0n;
+  const required = publishFee + (gasLimit * gasPrice);
+
+  if (balance < required) {
+    throw new Error(`Your wallet needs about ${formatCeloAmount(required)} total (${formatCeloAmount(publishFee)} publish fee + ${formatCeloAmount(gasLimit * gasPrice)} estimated Celo network fee), but only has ${formatCeloAmount(balance)}. Add CELO and publish again.`);
+  }
+}
+
 async function readPublishFee(provider: EthereumProvider, contractAddress: Hex) {
-  const data = encodeFunctionData({ abi: goodLearnExamAbi, functionName: "publishFee" });
+  const data = getPublishFeeData();
   const result = await provider.request?.({
     method: "eth_call",
     params: [{ to: contractAddress, data }, "latest"],
