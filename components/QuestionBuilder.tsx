@@ -44,7 +44,7 @@ export function QuestionBuilder() {
   const [correctionDelayDays, setCorrectionDelayDays] = useState(1);
   const [answerSecret, setAnswerSecret] = useState("goodmarket-secret");
   const [publishStatus, setPublishStatus] = useState("");
-  const [publishedExam, setPublishedExam] = useState<{ transactionHash: string; onChainExamId?: string; examRecordId?: string } | null>(null);
+  const [publishedExam, setPublishedExam] = useState<{ transactionHash: string; onChainExamId?: string } | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
 
   const completedQuestions = questions.filter(isComplete);
@@ -151,35 +151,7 @@ export function QuestionBuilder() {
       setPublishStatus(`Exam publish transaction submitted. Waiting for the on-chain ExamCreated event: ${transactionHashText}`);
       const onChainExamId = await waitForCreatedExamId(provider, transactionHashText as Hex, GOODLEARN_EXAM_ADDRESS);
       setPublishedExam({ transactionHash: transactionHashText, onChainExamId });
-      setPublishStatus(onChainExamId ? `Exam #${onChainExamId} is confirmed on-chain. Saving the off-chain question content now.` : `Exam is submitted on-chain. Saving the off-chain question content now.`);
-
-      try {
-        const publishResponse = await fetch("/api/publish-exam", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            moduleId,
-            creatorWallet: signerAddress,
-            contractExamId: onChainExamId,
-            questionSetHash,
-            questionCount: completedQuestions.length,
-            rewardPerCorrect: String(rewardPerCorrect),
-            maxParticipants,
-            timerSeconds,
-            questions: completedQuestions,
-          }),
-        });
-
-        if (publishResponse.ok) {
-          const result = await publishResponse.json() as { exam?: { id?: string } };
-          setPublishedExam({ transactionHash: transactionHashText, onChainExamId, examRecordId: result.exam?.id });
-          setPublishStatus(onChainExamId ? `Exam #${onChainExamId} published on-chain and saved to the exam list.` : `Exam published on-chain and saved to the exam list. Transaction: ${transactionHashText}`);
-        } else {
-          setPublishStatus(`Exam published on-chain, but saving it to the exam list failed. Transaction: ${transactionHashText}`);
-        }
-      } catch {
-        setPublishStatus(`Exam published on-chain, but saving it to the exam list failed. Transaction: ${transactionHashText}`);
-      }
+      setPublishStatus(onChainExamId ? `Exam #${onChainExamId} published on-chain and is ready in the on-chain exam list.` : `Exam publish transaction is on-chain. Open the on-chain exam list after the RPC indexes the ExamCreated event. Transaction: ${transactionHashText}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Wallet rejected or failed to send the publish transaction.";
       setPublishStatus(message);
@@ -362,12 +334,11 @@ export function QuestionBuilder() {
           <div className="published-exam-card" role="status">
             <span className="badge">Published</span>
             <h3>Exam is already on-chain</h3>
-            <p>The publish button is hidden now so you do not accidentally sign again and pay another gas fee. The contract stores the exam settings and question hash; Supabase stores the readable question text for learners.</p>
+            <p>The publish button is hidden now so you do not accidentally sign again and pay another gas fee. The contract is the source of truth for the exam settings, question hash, answer commitment, and exam ID.</p>
             {publishedExam.onChainExamId ? <code>On-chain exam #{publishedExam.onChainExamId}</code> : null}
             <code>{publishedExam.transactionHash}</code>
             <div className="published-exam-actions">
               <Link className="button" href="/exams">Open exam list</Link>
-              {publishedExam.examRecordId ? <span>Saved record: {publishedExam.examRecordId}</span> : null}
             </div>
           </div>
         ) : (
