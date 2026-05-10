@@ -17,6 +17,8 @@ const emptyQuestion = (id: number): DraftQuestion => ({
 
 const DEFAULT_MAX_REWARD_PER_LEARNER = 1000;
 const CELO_CHAIN_ID = "0xa4ec";
+const GAS_LIMIT_BUFFER_NUMERATOR = 12n;
+const GAS_LIMIT_BUFFER_DENOMINATOR = 10n;
 const GOODLEARN_EXAM_ADDRESS = process.env.NEXT_PUBLIC_GOODLEARN_EXAM_ADDRESS as Hex | undefined;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
@@ -78,7 +80,7 @@ export function QuestionBuilder() {
   const perLearnerMaxReward = completedQuestions.length * rewardPerCorrect;
   const unusedRewardRemainder = maxRewardPerLearner - perLearnerMaxReward;
   const requiredPool = perLearnerMaxReward * maxParticipants;
-  const safeTimerSeconds = Math.max(1, timerSecondsInput || 1);
+  const safeTimerSeconds = Math.max(5, timerSecondsInput || 5);
   const safeStartDelayHours = Math.max(0, startDelayHours || 0);
   const safeDurationDays = Math.max(1, durationDays || 1);
   const safeCorrectionDelayDays = Math.max(1, correctionDelayDays || 1);
@@ -120,6 +122,11 @@ export function QuestionBuilder() {
       return;
     }
 
+    if (timerSeconds < 5) {
+      setPublishStatus("Timer per question must be at least 5 seconds before the Celo contract can estimate gas.");
+      return;
+    }
+
     const provider = getInjectedProvider();
     if (!provider?.request) {
       setPublishStatus("No injected wallet provider was found. Open this page in GoodWallet, MetaMask, MiniPay, Trust Wallet, or another injected wallet browser.");
@@ -138,7 +145,6 @@ export function QuestionBuilder() {
       const startTime = BigInt(now + startDelaySeconds);
       const endTime = BigInt(now + startDelaySeconds + examDurationSeconds);
       const publishFee = await readPublishFee(provider, GOODLEARN_EXAM_ADDRESS);
-      setPublishStatus(`Confirm in MetaMask: ${formatCeloAmount(publishFee)} publish fee plus a separate Celo gas/network fee. The gas fee can vary, so your wallet may require more CELO than the publish fee alone.`);
       const data = encodeFunctionData({
         abi: goodLearnExamAbi,
         functionName: "createExam",
@@ -156,13 +162,23 @@ export function QuestionBuilder() {
         ],
       });
 
+      const transactionRequest = {
+        from: signerAddress,
+        to: GOODLEARN_EXAM_ADDRESS,
+        data,
+        value: toHex(publishFee),
+      };
+      const feeQuote = await estimateCeloNetworkFee(provider, transactionRequest);
+      await ensureSufficientBalance(provider, signerAddress, publishFee, feeQuote);
+
+      setPublishStatus(`Confirm in MetaMask: ${formatCeloAmount(publishFee)} publish fee plus about ${formatCeloAmount(feeQuote.estimatedFee)} for Celo network gas. The gas limit and gas price are prefilled so MetaMask should not show the network fee as unavailable.`);
+
       const transactionHash = await provider.request({
         method: "eth_sendTransaction",
         params: [{
-          from: signerAddress,
-          to: GOODLEARN_EXAM_ADDRESS,
-          data,
-          value: toHex(publishFee),
+          ...transactionRequest,
+          gas: toHex(feeQuote.gasLimit),
+          gasPrice: toHex(feeQuote.gasPrice),
         }],
       });
 
@@ -234,7 +250,7 @@ export function QuestionBuilder() {
             <label>
               <span>Timer per question</span>
               <div className="input-with-suffix">
-                <input min={1} type="number" value={timerSecondsInput} onChange={event => setTimerSecondsInput(Number(event.target.value))} />
+                <input min={5} type="number" value={safeTimerSeconds} onChange={event => setTimerSecondsInput(Number(event.target.value))} />
                 <small>sec</small>
               </div>
             </label>
@@ -358,7 +374,7 @@ export function QuestionBuilder() {
           <code>{correctAnswerCommitment}</code>
         </div>
         <p className="muted">Set the target max reward per participant and the app auto-divides it across completed questions for the contract rewardPerCorrect input. Funding locks the final settings on-chain.</p>
-        <p className="muted">Publishing opens MetaMask for the on-chain createExam call. Keep enough CELO for the contract publish fee plus the separate Celo gas/network fee shown by your wallet; this extra wallet fee can vary and may be roughly $0.10 worth of CELO depending on current network conditions.</p>
+        <p className="muted">Publishing opens MetaMask for the on-chain createExam call. The app pre-estimates and prefills the Celo gas limit and gas price so MetaMask can display the network fee instead of marking it unavailable.</p>
         {publishStatus ? <p className="wallet-message publish-status" role="status">{publishStatus}</p> : null}
         <button className="button publish-button" disabled={completedQuestions.length === 0 || isPublishing} onClick={handlePublish} type="button">
           {isPublishing ? "Publishing..." : "Submit and publish"}
@@ -380,6 +396,58 @@ function formatCeloAmount(value: bigint) {
 
   const trimmedFraction = fraction.toString().padStart(Number(celoDecimals), "0").replace(/0+$/, "");
   return `${whole.toString()}.${trimmedFraction} CELO`;
+}
+
+type TransactionRequest = {
+  from: string;
+  to: Hex;
+  data: Hex;
+  value: Hex;
+};
+
+type CeloNetworkFeeQuote = {
+  gasLimit: bigint;
+  gasPrice: bigint;
+  estimatedFee: bigint;
+};
+
+async function estimateCeloNetworkFee(provider: EthereumProvider, transactionRequest: TransactionRequest): Promise<CeloNetworkFeeQuote> {
+  const [estimatedGasResult, gasPriceResult] = await Promise.all([
+    provider.request?.({ method: "eth_estimateGas", params: [transactionRequest] }),
+    provider.request?.({ method: "eth_gasPrice" }),
+  ]);
+
+  const estimatedGas = parseRpcQuantity(estimatedGasResult, "gas estimate");
+  const gasPrice = parseRpcQuantity(gasPriceResult, "Celo gas price");
+  const gasLimit = applyGasBuffer(estimatedGas);
+
+  return {
+    gasLimit,
+    gasPrice,
+    estimatedFee: gasLimit * gasPrice,
+  };
+}
+
+async function ensureSufficientBalance(provider: EthereumProvider, signerAddress: string, publishFee: bigint, feeQuote: CeloNetworkFeeQuote) {
+  const balanceResult = await provider.request?.({ method: "eth_getBalance", params: [signerAddress, "latest"] });
+  const balance = parseRpcQuantity(balanceResult, "CELO balance");
+  const requiredBalance = publishFee + feeQuote.estimatedFee;
+
+  if (balance < requiredBalance) {
+    throw new Error(`Your wallet has ${formatCeloAmount(balance)}, but publishing needs about ${formatCeloAmount(requiredBalance)} (${formatCeloAmount(publishFee)} publish fee + ${formatCeloAmount(feeQuote.estimatedFee)} network fee). Add more CELO and try again.`);
+  }
+}
+
+function parseRpcQuantity(value: unknown, label: string) {
+  if (typeof value !== "string" || !value.startsWith("0x")) {
+    throw new Error(`Unable to read ${label} from the Celo RPC. Please try again in a moment.`);
+  }
+
+  return BigInt(value);
+}
+
+function applyGasBuffer(estimatedGas: bigint) {
+  return (estimatedGas * GAS_LIMIT_BUFFER_NUMERATOR + GAS_LIMIT_BUFFER_DENOMINATOR - 1n) / GAS_LIMIT_BUFFER_DENOMINATOR;
 }
 
 async function readPublishFee(provider: EthereumProvider, contractAddress: Hex) {
