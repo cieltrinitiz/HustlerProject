@@ -127,7 +127,7 @@ export function QuestionBuilder() {
     }
 
     setIsPublishing(true);
-    setPublishStatus("Opening wallet. MetaMask will show the contract publish fee plus a separate Celo network gas fee.");
+    setPublishStatus("Opening wallet. MetaMask will show the contract publish fee plus a separate Celo gas/network fee. Add more CELO if the wallet says the network fee is unavailable.");
 
     try {
       await switchToCelo(provider);
@@ -138,7 +138,7 @@ export function QuestionBuilder() {
       const startTime = BigInt(now + startDelaySeconds);
       const endTime = BigInt(now + startDelaySeconds + examDurationSeconds);
       const publishFee = await readPublishFee(provider, GOODLEARN_EXAM_ADDRESS);
-      setPublishStatus(`Confirm in MetaMask: ${formatCeloAmount(publishFee)} publish fee plus the separate Celo network gas fee.`);
+      setPublishStatus(`Confirm in MetaMask: ${formatCeloAmount(publishFee)} publish fee plus a separate Celo gas/network fee. The gas fee can vary, so your wallet may require more CELO than the publish fee alone.`);
       const data = encodeFunctionData({
         abi: goodLearnExamAbi,
         functionName: "createExam",
@@ -358,7 +358,7 @@ export function QuestionBuilder() {
           <code>{correctAnswerCommitment}</code>
         </div>
         <p className="muted">Set the target max reward per participant and the app auto-divides it across completed questions for the contract rewardPerCorrect input. Funding locks the final settings on-chain.</p>
-        <p className="muted">Publishing opens MetaMask for the on-chain createExam call. Keep enough CELO for the contract publish fee plus the separate Celo network gas fee shown by your wallet.</p>
+        <p className="muted">Publishing opens MetaMask for the on-chain createExam call. Keep enough CELO for the contract publish fee plus the separate Celo gas/network fee shown by your wallet; this extra wallet fee can vary and may be roughly $0.10 worth of CELO depending on current network conditions.</p>
         {publishStatus ? <p className="wallet-message publish-status" role="status">{publishStatus}</p> : null}
         <button className="button publish-button" disabled={completedQuestions.length === 0 || isPublishing} onClick={handlePublish} type="button">
           {isPublishing ? "Publishing..." : "Submit and publish"}
